@@ -13,7 +13,7 @@ if (process.env.NODE_ENV !== 'production') {
     if (result.parsed) {
       console.error('📋 Loaded .env file for development');
     }
-  } catch {
+  } catch (error) {
     // dotenv not required in production
   }
 }
@@ -39,6 +39,7 @@ import { FirefoxDevTools } from './firefox/index.js';
 import type { FirefoxLaunchOptions } from './firefox/types.js';
 import * as tools from './tools/index.js';
 import type { McpToolResponse } from './types/common.js';
+import { FirefoxDisconnectedError } from './utils/errors.js';
 
 // Export for direct usage in scripts
 export { FirefoxDevTools } from './firefox/index.js';
@@ -97,11 +98,11 @@ export async function getFirefox(): Promise<FirefoxDevTools> {
   if (firefox) {
     const isConnected = await firefox.isConnected();
     if (!isConnected) {
-      log('Firefox connection lost, reconnecting...');
+      log('Firefox connection lost - browser was closed or disconnected');
       resetFirefox();
-    } else {
-      return firefox;
+      throw new FirefoxDisconnectedError('Browser was closed');
     }
+    return firefox;
   }
 
   // No existing instance - create new connection
@@ -139,12 +140,10 @@ export async function getFirefox(): Promise<FirefoxDevTools> {
       args: (args.firefoxArg as string[] | undefined) ?? undefined,
       startUrl: args.startUrl ?? undefined,
       acceptInsecureCerts: args.acceptInsecureCerts,
-      connectExisting: args.connectExisting,
-      marionettePort: args.marionettePort,
-      marionetteHost: args.marionetteHost,
       env: envVars,
       logFile: args.outputFile ?? undefined,
       prefs,
+      remoteDebuggingPort: args.remoteDebuggingPort ?? undefined,
     };
   }
 
@@ -168,6 +167,9 @@ const toolHandlers = new Map<string, (input: unknown) => Promise<McpToolResponse
   ['navigate_page', tools.handleNavigatePage],
   ['select_page', tools.handleSelectPage],
   ['close_page', tools.handleClosePage],
+
+  // Script evaluation
+  ['evaluate_script', tools.handleEvaluateScript],
 
   // Console
   ['list_console_messages', tools.handleListConsoleMessages],
@@ -205,24 +207,19 @@ const toolHandlers = new Map<string, (input: unknown) => Promise<McpToolResponse
   ['get_firefox_info', tools.handleGetFirefoxInfo],
   ['restart_firefox', tools.handleRestartFirefox],
 
-  // WebExtensions (install/uninstall use standard BiDi, no privileged context required)
+  // Chrome Context
+  ['list_chrome_contexts', tools.handleListChromeContexts],
+  ['select_chrome_context', tools.handleSelectChromeContext],
+  ['evaluate_chrome_script', tools.handleEvaluateChromeScript],
+
+  // Firefox Preferences
+  ['set_firefox_prefs', tools.handleSetFirefoxPrefs],
+  ['get_firefox_prefs', tools.handleGetFirefoxPrefs],
+
+  // WebExtensions
   ['install_extension', tools.handleInstallExtension],
   ['uninstall_extension', tools.handleUninstallExtension],
-
-  // Script evaluation — requires --enable-script
-  ...(args.enableScript ? ([['evaluate_script', tools.handleEvaluateScript]] as const) : []),
-
-  // Privileged context tools — requires --enable-privileged-context
-  ...(args.enablePrivilegedContext
-    ? ([
-        ['list_privileged_contexts', tools.handleListPrivilegedContexts],
-        ['select_privileged_context', tools.handleSelectPrivilegedContext],
-        ['evaluate_privileged_script', tools.handleEvaluatePrivilegedScript],
-        ['set_firefox_prefs', tools.handleSetFirefoxPrefs],
-        ['get_firefox_prefs', tools.handleGetFirefoxPrefs],
-        ['list_extensions', tools.handleListExtensions],
-      ] as const)
-    : []),
+  ['list_extensions', tools.handleListExtensions],
 ]);
 
 // All tool definitions
@@ -233,6 +230,9 @@ const allTools = [
   tools.navigatePageTool,
   tools.selectPageTool,
   tools.closePageTool,
+
+  // Script evaluation
+  tools.evaluateScriptTool,
 
   // Console
   tools.listConsoleMessagesTool,
@@ -270,24 +270,19 @@ const allTools = [
   tools.getFirefoxInfoTool,
   tools.restartFirefoxTool,
 
-  // WebExtensions (install/uninstall use standard BiDi, no privileged context required)
+  // Chrome Context
+  tools.listChromeContextsTool,
+  tools.selectChromeContextTool,
+  tools.evaluateChromeScriptTool,
+
+  // Firefox Preferences
+  tools.setFirefoxPrefsTool,
+  tools.getFirefoxPrefsTool,
+
+  // WebExtensions
   tools.installExtensionTool,
   tools.uninstallExtensionTool,
-
-  // Script evaluation — requires --enable-script
-  ...(args.enableScript ? [tools.evaluateScriptTool] : []),
-
-  // Privileged context tools — requires --enable-privileged-context
-  ...(args.enablePrivilegedContext
-    ? [
-        tools.listPrivilegedContextsTool,
-        tools.selectPrivilegedContextTool,
-        tools.evaluatePrivilegedScriptTool,
-        tools.setFirefoxPrefsTool,
-        tools.getFirefoxPrefsTool,
-        tools.listExtensionsTool,
-      ]
-    : []),
+  tools.listExtensionsTool,
 ];
 
 async function main() {
@@ -358,26 +353,6 @@ async function main() {
 
   log('Firefox DevTools MCP server running on stdio');
   log('Ready to accept tool requests');
-
-  // Clean up the Marionette session so Firefox accepts new connections.
-  // Without this, the session stays locked after the MCP client disconnects.
-  const cleanup = async () => {
-    if (firefox) {
-      try {
-        await firefox.close();
-      } catch {
-        // ignore
-      }
-    }
-    await server.close();
-    process.exit(0);
-  };
-  const onSignal = () => void cleanup();
-  process.on('SIGTERM', onSignal);
-  process.on('SIGINT', onSignal);
-  // StdioServerTransport does not fire onclose on stdin EOF.
-  process.stdin.on('end', onSignal);
-  process.stdin.on('close', onSignal);
 }
 
 // Only run main() if this file is executed directly (not imported)
@@ -392,7 +367,7 @@ try {
   const realModulePath = realpathSync(modulePath);
   const realScriptPath = scriptPath ? realpathSync(scriptPath) : '';
   isMainModule = realModulePath === realScriptPath;
-} catch {
+} catch (error) {
   // If realpath fails (e.g., file doesn't exist), fall back to simple comparison
   isMainModule = modulePath === scriptPath;
 }

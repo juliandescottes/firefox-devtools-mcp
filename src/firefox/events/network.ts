@@ -2,7 +2,7 @@
  * Network event handling with lifecycle hooks
  */
 
-import type { WebDriver } from 'selenium-webdriver';
+import type { BiDiConnection } from '../bidi-connection.js';
 import { logDebug } from '../../utils/logger.js';
 
 // Memory protection constants
@@ -24,7 +24,7 @@ export class NetworkEvents {
   private options: NetworkEventsOptions;
 
   constructor(
-    private driver: WebDriver,
+    private connection: BiDiConnection,
     options: NetworkEventsOptions = {}
   ) {
     this.options = {
@@ -42,28 +42,21 @@ export class NetworkEvents {
       return;
     }
 
-    const bidi = await this.driver.getBidi();
+    // Subscribe to network and navigation events
+    await this.connection.subscribe(
+      [
+        'network.beforeRequestSent',
+        'network.responseStarted',
+        'network.responseCompleted',
+        'browsingContext.load',
+        'browsingContext.domContentLoaded',
+      ],
+      contextId ? [contextId] : undefined
+    );
 
-    // Subscribe to network events
-    await bidi.subscribe('network.beforeRequestSent', contextId ? [contextId] : undefined);
-    await bidi.subscribe('network.responseStarted', contextId ? [contextId] : undefined);
-    await bidi.subscribe('network.responseCompleted', contextId ? [contextId] : undefined);
-
-    // Subscribe to navigation events for lifecycle hooks
-    try {
-      await bidi.subscribe('browsingContext.load', contextId ? [contextId] : undefined);
-      await bidi.subscribe('browsingContext.domContentLoaded', contextId ? [contextId] : undefined);
-    } catch {
-      logDebug(
-        'Navigation events subscription skipped (may not be available in this Firefox version)'
-      );
-    }
-
-    const ws: any = bidi.socket;
-    ws.on('message', (data: any) => {
+    // Register message handler
+    this.connection.on('message', (payload: any) => {
       try {
-        const payload = JSON.parse(data.toString());
-
         // Handle navigation lifecycle events
         if (
           payload?.method === 'browsingContext.load' ||
@@ -153,7 +146,7 @@ export class NetworkEvents {
 
           this.requestStartTimes.delete(requestId);
         }
-      } catch {
+      } catch (err) {
         // Ignore parse errors
       }
     });
@@ -310,7 +303,6 @@ export class NetworkEvents {
           return null;
         }
       }
-      // eslint-disable-next-line @typescript-eslint/no-base-to-string
       return String(value);
     };
 

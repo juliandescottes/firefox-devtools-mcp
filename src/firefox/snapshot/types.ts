@@ -2,7 +2,7 @@
  * Snapshot types and interfaces
  */
 
-import type { IElement } from '../core.js';
+import type { ElementReference } from './resolver.js';
 
 /**
  * UID entry with CSS and XPath selectors
@@ -100,7 +100,7 @@ export interface InjectedScriptResult {
 export interface ElementCacheEntry {
   selector: string;
   xpath?: string;
-  cachedElement?: IElement;
+  cachedElement?: ElementReference;
   snapshotId: number;
   timestamp: number;
 }

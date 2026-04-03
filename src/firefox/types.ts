@@ -58,13 +58,15 @@ export interface FirefoxLaunchOptions {
   args?: string[] | undefined;
   startUrl?: string | undefined;
   acceptInsecureCerts?: boolean | undefined;
-  connectExisting?: boolean | undefined;
-  marionettePort?: number | undefined;
-  marionetteHost?: string | undefined;
   env?: Record<string, string> | undefined;
   logFile?: string | undefined;
-  /** Firefox preferences to set at startup via moz:firefoxOptions */
+  /** Firefox preferences to set at startup via Services.prefs API */
   prefs?: Record<string, string | number | boolean> | undefined;
+  /**
+   * Port to connect to existing Firefox instance via BiDi.
+   * If provided, Firefox will not be launched - the MCP will connect to existing instance.
+   */
+  remoteDebuggingPort?: number | undefined;
 }
 
 /**

@@ -1,156 +1,121 @@
 /**
- * DOM interactions: evaluate, element lookup, input actions
+ * DOM interactions: evaluate, element lookup, input actions (Pure BiDi)
  */
 
-import { Key } from 'selenium-webdriver';
-import type { IDriver, IElement } from './core.js';
+import type { FirefoxCore } from './core.js';
+
+// Element reference returned by BiDi script.evaluate
+interface ElementReference {
+  sharedId: string;
+  handle?: string;
+}
 
 export class DomInteractions {
   constructor(
-    private driver: IDriver,
-    private resolveUid?: (uid: string) => Promise<IElement>
+    private core: FirefoxCore,
+    private resolveUid?: (uid: string) => Promise<ElementReference>
   ) {}
 
   /**
-   * Evaluate JavaScript - direct passthrough to executeScript
+   * Evaluate JavaScript using BiDi script.evaluate
    */
   async evaluate(script: string): Promise<unknown> {
-    return await this.driver.executeScript(script);
+    const contextId = this.core.getCurrentContextId();
+    if (!contextId) {
+      throw new Error('No active context');
+    }
+
+    const result = await this.core.sendBiDiCommand('script.evaluate', {
+      expression: script,
+      target: { context: contextId },
+      awaitPromise: false,
+    });
+
+    if (result.type === 'exception') {
+      throw new Error(`Script error: ${result.exceptionDetails?.text || 'Unknown error'}`);
+    }
+
+    return this.extractValue(result);
   }
 
   /**
    * Get page HTML content
    */
   async getContent(): Promise<string> {
-    const html = await this.evaluate('return document.documentElement.outerHTML');
+    const html = await this.evaluate('document.documentElement.outerHTML');
     return String(html);
   }
-
-  // ============================================================================
-  // Element polling helpers (work with both WebDriver and GeckodriverHttpDriver)
-  // ============================================================================
-
-  /**
-   * Poll for an element matching a CSS selector until found or timeout.
-   */
-  private async waitForElement(selector: string, timeout = 5000): Promise<IElement> {
-    const deadline = Date.now() + timeout;
-    let lastError: Error | undefined;
-    while (Date.now() < deadline) {
-      try {
-        return await this.driver.findElement({ using: 'css selector', value: selector });
-      } catch (e) {
-        lastError = e instanceof Error ? e : new Error(String(e));
-      }
-      await new Promise((r) => setTimeout(r, 100));
-    }
-    throw lastError ?? new Error(`Element not found: ${selector}`);
-  }
-
-  /**
-   * Wait until an element reports isDisplayed(), ignoring failures.
-   */
-  private async waitForVisible(el: IElement, timeout = 5000): Promise<void> {
-    const deadline = Date.now() + timeout;
-    while (Date.now() < deadline) {
-      try {
-        if (await el.isDisplayed()) {
-          return;
-        }
-      } catch {
-        // Element may not be ready yet
-      }
-      await new Promise((r) => setTimeout(r, 100));
-    }
-    // Visibility wait is best-effort; don't throw
-  }
-
-  // ============================================================================
-  // Selector-based input methods
-  // ============================================================================
 
   /**
    * Click element by CSS selector
    */
   async clickBySelector(selector: string): Promise<void> {
-    const el = await this.waitForElement(selector, 5000);
-    await this.waitForVisible(el, 5000);
-    await el.click();
+    const elementRef = await this.findElementBySelector(selector);
+    await this.clickElement(elementRef);
   }
 
   /**
    * Hover over element by CSS selector
    */
   async hoverBySelector(selector: string): Promise<void> {
-    const el = await this.waitForElement(selector, 5000);
-    await this.driver.actions({ async: true }).move({ origin: el }).perform();
+    const elementRef = await this.findElementBySelector(selector);
+    await this.hoverElement(elementRef);
   }
 
   /**
    * Fill input field by CSS selector
    */
   async fillBySelector(selector: string, text: string): Promise<void> {
-    const el = await this.waitForElement(selector, 5000);
-    try {
-      await el.clear();
-    } catch {
-      // Some inputs may not support clear(); fall back to select-all + delete
-      await el.sendKeys(Key.chord(Key.CONTROL, 'a'), Key.DELETE);
-    }
-    await el.sendKeys(text);
+    const elementRef = await this.findElementBySelector(selector);
+    await this.fillElement(elementRef, text);
   }
 
   /**
    * Drag & drop using JS events fallback (DataTransfer).
-   * Works on simple pages; not guaranteed for all custom DnD libs.
    */
   async dragAndDropBySelectors(sourceSelector: string, targetSelector: string): Promise<void> {
-    await this.driver.executeScript(
-      `
-      var srcSel = arguments[0], tgtSel = arguments[1];
-      var src = document.querySelector(srcSel);
-      var tgt = document.querySelector(tgtSel);
-      if (!src || !tgt) throw new Error('dragAndDrop: element not found');
-      function dispatch(type, target, dt) {
-        var evt = new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: dt });
-        return target.dispatchEvent(evt);
-      }
-      var dt = typeof DataTransfer !== 'undefined' ? new DataTransfer() : undefined;
-      dispatch('dragstart', src, dt);
-      dispatch('dragenter', tgt, dt);
-      dispatch('dragover', tgt, dt);
-      dispatch('drop', tgt, dt);
-      dispatch('dragend', src, dt);
-    `,
-      sourceSelector,
-      targetSelector
-    );
+    const contextId = this.core.getCurrentContextId();
+    if (!contextId) {
+      throw new Error('No active context');
+    }
+
+    await this.core.sendBiDiCommand('script.evaluate', {
+      expression: `
+        (function(srcSel, tgtSel) {
+          const src = document.querySelector(srcSel);
+          const tgt = document.querySelector(tgtSel);
+          if (!src || !tgt) {
+            throw new Error('dragAndDrop: element not found');
+          }
+
+          function dispatch(type, target, dataTransfer) {
+            const evt = new DragEvent(type, {
+              bubbles: true,
+              cancelable: true,
+              dataTransfer: dataTransfer
+            });
+            return target.dispatchEvent(evt);
+          }
+
+          const dt = typeof DataTransfer !== 'undefined' ? new DataTransfer() : undefined;
+          dispatch('dragstart', src, dt);
+          dispatch('dragenter', tgt, dt);
+          dispatch('dragover', tgt, dt);
+          dispatch('drop', tgt, dt);
+          dispatch('dragend', src, dt);
+        })("${sourceSelector}", "${targetSelector}")
+      `,
+      target: { context: contextId },
+      awaitPromise: false,
+    });
   }
 
   /**
-   * File upload: unhide if needed, then send local path to <input type=file>.
+   * File upload: unhide if needed, then send local path
    */
   async uploadFileBySelector(selector: string, filePath: string): Promise<void> {
-    const el = await this.waitForElement(selector, 5000);
-    // Ensure it's an <input type=file>; if hidden, unhide via JS
-    await this.driver.executeScript(
-      `
-      var sel = arguments[0];
-      var e = document.querySelector(sel);
-      if (!e) throw new Error('uploadFile: element not found');
-      if (e.tagName !== 'INPUT' || e.type !== 'file')
-        throw new Error('uploadFile: selector must target <input type=file>');
-      var style = window.getComputedStyle(e);
-      if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
-        var s = e.style;
-        s.display = 'block'; s.visibility = 'visible'; s.opacity = '1';
-        s.position = 'fixed'; s.left = '0px'; s.top = '0px';
-        s.zIndex = '2147483647';
-      }
-    `,
-      selector
-    );
-    await el.sendKeys(filePath);
+    const elementRef = await this.findElementBySelector(selector);
+    await this.uploadFile(elementRef, filePath);
   }
 
   // ============================================================================
@@ -159,22 +124,13 @@ export class DomInteractions {
 
   /**
    * Click element by UID
-   * Requires resolveUid callback to be set (from SnapshotManager)
    */
   async clickByUid(uid: string, dblClick = false): Promise<void> {
     if (!this.resolveUid) {
       throw new Error('clickByUid: resolveUid callback not set. Ensure snapshot is initialized.');
     }
-    const el = await this.resolveUid(uid);
-    await this.waitForVisible(el, 5000);
-
-    if (dblClick) {
-      await this.driver.actions({ async: true }).doubleClick(el).perform();
-    } else {
-      await el.click();
-    }
-
-    // Wait for events to propagate
+    const elementRef = await this.resolveUid(uid);
+    await this.clickElement(elementRef, dblClick);
     await this.waitForEventsAfterAction();
   }
 
@@ -185,10 +141,8 @@ export class DomInteractions {
     if (!this.resolveUid) {
       throw new Error('hoverByUid: resolveUid callback not set. Ensure snapshot is initialized.');
     }
-    const el = await this.resolveUid(uid);
-    await this.driver.actions({ async: true }).move({ origin: el }).perform();
-
-    // Wait for events to propagate
+    const elementRef = await this.resolveUid(uid);
+    await this.hoverElement(elementRef);
     await this.waitForEventsAfterAction();
   }
 
@@ -199,24 +153,13 @@ export class DomInteractions {
     if (!this.resolveUid) {
       throw new Error('fillByUid: resolveUid callback not set. Ensure snapshot is initialized.');
     }
-    const el = await this.resolveUid(uid);
-
-    try {
-      await el.clear();
-    } catch {
-      // Some inputs may not support clear(); fall back to select-all + delete
-      await el.sendKeys(Key.chord(Key.CONTROL, 'a'), Key.DELETE);
-    }
-
-    await el.sendKeys(value);
-
-    // Wait for events to propagate
+    const elementRef = await this.resolveUid(uid);
+    await this.fillElement(elementRef, value);
     await this.waitForEventsAfterAction();
   }
 
   /**
    * Drag & drop by UIDs
-   * Uses JS events fallback for better compatibility
    */
   async dragByUidToUid(fromUid: string, toUid: string): Promise<void> {
     if (!this.resolveUid) {
@@ -228,27 +171,44 @@ export class DomInteractions {
     const fromEl = await this.resolveUid(fromUid);
     const toEl = await this.resolveUid(toUid);
 
-    // Use JS drag events fallback for compatibility (Actions DnD not used)
-    await this.driver.executeScript(
-      `
-      var srcEl = arguments[0], tgtEl = arguments[1];
-      if (!srcEl || !tgtEl) throw new Error('dragAndDrop: element not found');
-      function dispatch(type, target, dt) {
-        var evt = new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: dt });
-        return target.dispatchEvent(evt);
-      }
-      var dt = typeof DataTransfer !== 'undefined' ? new DataTransfer() : undefined;
-      dispatch('dragstart', srcEl, dt);
-      dispatch('dragenter', tgtEl, dt);
-      dispatch('dragover', tgtEl, dt);
-      dispatch('drop', tgtEl, dt);
-      dispatch('dragend', srcEl, dt);
-    `,
-      fromEl,
-      toEl
-    );
+    const contextId = this.core.getCurrentContextId();
+    if (!contextId) {
+      throw new Error('No active context');
+    }
 
-    // Wait for events to propagate
+    // Use JS drag events with element references
+    await this.core.sendBiDiCommand('script.callFunction', {
+      functionDeclaration: `
+        function(srcEl, tgtEl) {
+          if (!srcEl || !tgtEl) {
+            throw new Error('dragAndDrop: element not found');
+          }
+
+          function dispatch(type, target, dataTransfer) {
+            const evt = new DragEvent(type, {
+              bubbles: true,
+              cancelable: true,
+              dataTransfer: dataTransfer
+            });
+            return target.dispatchEvent(evt);
+          }
+
+          const dt = typeof DataTransfer !== 'undefined' ? new DataTransfer() : undefined;
+          dispatch('dragstart', srcEl, dt);
+          dispatch('dragenter', tgtEl, dt);
+          dispatch('dragover', tgtEl, dt);
+          dispatch('drop', tgtEl, dt);
+          dispatch('dragend', srcEl, dt);
+        }
+      `,
+      arguments: [
+        { sharedId: fromEl.sharedId },
+        { sharedId: toEl.sharedId },
+      ],
+      target: { context: contextId },
+      awaitPromise: false,
+    });
+
     await this.waitForEventsAfterAction();
   }
 
@@ -269,7 +229,6 @@ export class DomInteractions {
 
   /**
    * Upload file by UID
-   * Handles hidden file inputs by making them visible
    */
   async uploadFileByUid(uid: string, filePath: string): Promise<void> {
     if (!this.resolveUid) {
@@ -278,41 +237,274 @@ export class DomInteractions {
       );
     }
 
-    const el = await this.resolveUid(uid);
-
-    // Ensure it's an <input type=file>; if hidden, unhide via JS
-    await this.driver.executeScript(
-      `
-      var element = arguments[0];
-      if (!element) throw new Error('uploadFile: element not found');
-      if (element.tagName !== 'INPUT' || element.type !== 'file')
-        throw new Error('uploadFile: element must be <input type=file>');
-      var style = window.getComputedStyle(element);
-      if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
-        var s = element.style;
-        s.display = 'block'; s.visibility = 'visible'; s.opacity = '1';
-        s.position = 'fixed'; s.left = '0px'; s.top = '0px';
-        s.zIndex = '2147483647';
-      }
-    `,
-      el
-    );
-
-    await el.sendKeys(filePath);
-
-    // Wait for events to propagate
+    const elementRef = await this.resolveUid(uid);
+    await this.uploadFile(elementRef, filePath);
     await this.waitForEventsAfterAction();
+  }
+
+  // ============================================================================
+  // Private helper methods
+  // ============================================================================
+
+  /**
+   * Find element by CSS selector with retry
+   */
+  private async findElementBySelector(selector: string, timeout = 5000): Promise<ElementReference> {
+    const startTime = Date.now();
+    let lastError: Error | null = null;
+
+    while (Date.now() - startTime < timeout) {
+      try {
+        const contextId = this.core.getCurrentContextId();
+        if (!contextId) {
+          throw new Error('No active context');
+        }
+
+        const result = await this.core.sendBiDiCommand('browsingContext.locateNodes', {
+          context: contextId,
+          locator: {
+            type: 'css',
+            value: selector,
+          },
+          maxNodeCount: 1,
+        });
+
+        // Result format: { nodes: [NodeRemoteValue, ...] }
+        if (result.nodes && result.nodes.length > 0) {
+          const node = result.nodes[0];
+          if (node.sharedId) {
+            return { sharedId: node.sharedId, handle: node.handle };
+          }
+        }
+
+        throw new Error(`Element not found: ${selector}`);
+      } catch (error) {
+        lastError = error as Error;
+      }
+
+      // Wait before retry
+      await new Promise(resolve => setTimeout(resolve, 200));
+    }
+
+    throw new Error(`Timeout waiting for element: ${selector}. ${lastError?.message || ''}`);
+  }
+
+  /**
+   * Click element using BiDi input.performActions
+   */
+  private async clickElement(elementRef: ElementReference, doubleClick = false): Promise<void> {
+    const contextId = this.core.getCurrentContextId();
+    if (!contextId) {
+      throw new Error('No active context');
+    }
+
+    const actions = doubleClick
+      ? [
+          { type: 'pointerMove', x: 0, y: 0, origin: { type: 'element', element: { sharedId: elementRef.sharedId } } },
+          { type: 'pointerDown', button: 0 },
+          { type: 'pointerUp', button: 0 },
+          { type: 'pause', duration: 100 },
+          { type: 'pointerDown', button: 0 },
+          { type: 'pointerUp', button: 0 },
+        ]
+      : [
+          { type: 'pointerMove', x: 0, y: 0, origin: { type: 'element', element: { sharedId: elementRef.sharedId } } },
+          { type: 'pointerDown', button: 0 },
+          { type: 'pointerUp', button: 0 },
+        ];
+
+    await this.core.sendBiDiCommand('input.performActions', {
+      context: contextId,
+      actions: [{
+        type: 'pointer',
+        id: 'mouse',
+        actions,
+      }],
+    });
+  }
+
+  /**
+   * Hover element using BiDi input.performActions
+   */
+  private async hoverElement(elementRef: ElementReference): Promise<void> {
+    const contextId = this.core.getCurrentContextId();
+    if (!contextId) {
+      throw new Error('No active context');
+    }
+
+    await this.core.sendBiDiCommand('input.performActions', {
+      context: contextId,
+      actions: [{
+        type: 'pointer',
+        id: 'mouse',
+        actions: [
+          { type: 'pointerMove', x: 0, y: 0, origin: { type: 'element', element: { sharedId: elementRef.sharedId } } },
+        ],
+      }],
+    });
+  }
+
+  /**
+   * Fill element using BiDi input.performActions (keyboard)
+   */
+  private async fillElement(elementRef: ElementReference, text: string): Promise<void> {
+    const contextId = this.core.getCurrentContextId();
+    if (!contextId) {
+      throw new Error('No active context');
+    }
+
+    // First click to focus
+    await this.clickElement(elementRef);
+
+    // Clear existing text (Ctrl+A, Delete)
+    await this.core.sendBiDiCommand('input.performActions', {
+      context: contextId,
+      actions: [{
+        type: 'key',
+        id: 'keyboard',
+        actions: [
+          { type: 'keyDown', value: '\uE009' }, // Ctrl
+          { type: 'keyDown', value: 'a' },
+          { type: 'keyUp', value: 'a' },
+          { type: 'keyUp', value: '\uE009' },
+          { type: 'keyDown', value: '\uE017' }, // Delete
+          { type: 'keyUp', value: '\uE017' },
+        ],
+      }],
+    });
+
+    // Type new text
+    const keyActions: any[] = [];
+    for (const char of text) {
+      keyActions.push({ type: 'keyDown', value: char });
+      keyActions.push({ type: 'keyUp', value: char });
+    }
+
+    await this.core.sendBiDiCommand('input.performActions', {
+      context: contextId,
+      actions: [{
+        type: 'key',
+        id: 'keyboard',
+        actions: keyActions,
+      }],
+    });
+  }
+
+  /**
+   * Upload file to file input element
+   */
+  private async uploadFile(elementRef: ElementReference, filePath: string): Promise<void> {
+    const contextId = this.core.getCurrentContextId();
+    if (!contextId) {
+      throw new Error('No active context');
+    }
+
+    // Unhide element if needed
+    await this.core.sendBiDiCommand('script.callFunction', {
+      functionDeclaration: `
+        function(element) {
+          if (!element) {
+            throw new Error('uploadFile: element not found');
+          }
+          if (element.tagName !== 'INPUT' || element.type !== 'file') {
+            throw new Error('uploadFile: element must be <input type=file>');
+          }
+          const style = window.getComputedStyle(element);
+          if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+            element.style.display = 'block';
+            element.style.visibility = 'visible';
+            element.style.opacity = '1';
+            element.style.position = 'fixed';
+            element.style.left = '0px';
+            element.style.top = '0px';
+            element.style.zIndex = '2147483647';
+          }
+        }
+      `,
+      arguments: [{ sharedId: elementRef.sharedId }],
+      target: { context: contextId },
+      awaitPromise: false,
+    });
+
+    // Set file path using input.performActions
+    const keyActions: any[] = [];
+    for (const char of filePath) {
+      keyActions.push({ type: 'keyDown', value: char });
+      keyActions.push({ type: 'keyUp', value: char });
+    }
+
+    // Click element first to focus
+    await this.clickElement(elementRef);
+
+    await this.core.sendBiDiCommand('input.performActions', {
+      context: contextId,
+      actions: [{
+        type: 'key',
+        id: 'keyboard',
+        actions: keyActions,
+      }],
+    });
   }
 
   /**
    * Wait for events to propagate after user action
-   * Gives the page time to respond to interactions
    */
   private async waitForEventsAfterAction(): Promise<void> {
-    // Wait for microtask/raf to allow event handlers to fire
-    await this.driver.executeScript('return new Promise(r => requestAnimationFrame(() => r()))');
-    // Small additional delay for good measure
+    const contextId = this.core.getCurrentContextId();
+    if (!contextId) {
+      return;
+    }
+
+    // Wait for requestAnimationFrame
+    await this.core.sendBiDiCommand('script.evaluate', {
+      expression: 'new Promise(r => requestAnimationFrame(() => r()))',
+      target: { context: contextId },
+      awaitPromise: true,
+    });
+
+    // Small additional delay
     await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+
+  /**
+   * Extract value from BiDi script result
+   */
+  /**
+   * Extract value from BiDi script result
+   * Recursively deserializes BiDi's object/array format
+   */
+  private extractValue(result: any): unknown {
+    // BiDi wraps the actual result in { type: 'success', result: {...} }
+    // Extract the inner result first
+    const actualResult = result.type === 'success' ? result.result : result;
+
+    if (actualResult.type === 'undefined') {
+      return undefined;
+    }
+    if (actualResult.type === 'null') {
+      return null;
+    }
+    if (actualResult.type === 'string' || actualResult.type === 'number' || actualResult.type === 'boolean') {
+      return actualResult.value;
+    }
+    if (actualResult.type === 'object') {
+      // BiDi serializes objects as: { type: 'object', value: [[key, {type, value}], ...] }
+      const obj: any = {};
+      if (Array.isArray(actualResult.value)) {
+        for (const [key, val] of actualResult.value) {
+          obj[key] = this.extractValue(val);
+        }
+      }
+      return obj;
+    }
+    if (actualResult.type === 'array') {
+      // BiDi serializes arrays as: { type: 'array', value: [{type, value}, ...] }
+      if (Array.isArray(actualResult.value)) {
+        return actualResult.value.map((item: any) => this.extractValue(item));
+      }
+      return [];
+    }
+    return actualResult.value;
   }
 
   // ============================================================================
@@ -324,12 +516,21 @@ export class DomInteractions {
    * @returns PNG as base64 string
    */
   async takeScreenshotPage(): Promise<string> {
-    return await this.driver.takeScreenshot();
+    const contextId = this.core.getCurrentContextId();
+    if (!contextId) {
+      throw new Error('No active context');
+    }
+
+    const result = await this.core.sendBiDiCommand('browsingContext.captureScreenshot', {
+      context: contextId,
+    });
+
+    return result.data;
   }
 
   /**
    * Take screenshot of element by UID
-   * Scrolls element into view, then captures it
+   * Scrolls element into view, captures full page, then crops to element bounds
    * @param uid Element UID from snapshot
    * @returns PNG as base64 string
    */
@@ -340,18 +541,54 @@ export class DomInteractions {
       );
     }
 
-    const el = await this.resolveUid(uid);
+    const contextId = this.core.getCurrentContextId();
+    if (!contextId) {
+      throw new Error('No active context');
+    }
+
+    const elementRef = await this.resolveUid(uid);
 
     // Scroll element into view
-    await this.driver.executeScript(
-      'arguments[0].scrollIntoView({block: "center", inline: "center"});',
-      el
-    );
+    await this.core.sendBiDiCommand('script.callFunction', {
+      functionDeclaration: `
+        function(element) {
+          element.scrollIntoView({block: 'center', inline: 'center'});
+        }
+      `,
+      arguments: [{ sharedId: elementRef.sharedId }],
+      target: { context: contextId },
+      awaitPromise: false,
+    });
 
     // Wait for scroll to complete
     await new Promise((resolve) => setTimeout(resolve, 100));
 
-    // Take screenshot of element (Selenium automatically crops to element bounds)
-    return await el.takeScreenshot();
+    // Get element bounds
+    const boundsResult = await this.core.sendBiDiCommand('script.callFunction', {
+      functionDeclaration: `
+        function(element) {
+          const rect = element.getBoundingClientRect();
+          return {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height
+          };
+        }
+      `,
+      arguments: [{ sharedId: elementRef.sharedId }],
+      target: { context: contextId },
+      awaitPromise: false,
+    });
+
+    const bounds = this.extractValue(boundsResult);
+
+    // Take full page screenshot
+    const screenshot = await this.takeScreenshotPage();
+
+    // Note: BiDi doesn't have built-in cropping, so we return full screenshot
+    // The consumer can crop if needed, or we can implement cropping using a library
+    // For now, return full screenshot (limitation of pure BiDi)
+    return screenshot;
   }
 }

@@ -15,7 +15,7 @@ import type { McpToolResponse } from '../types/common.js';
 export const setFirefoxPrefsTool = {
   name: 'set_firefox_prefs',
   description:
-    'Set Firefox preferences at runtime a privileged API. Requires MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1 env var.',
+    'Set Firefox preferences at runtime via Services.prefs API. Requires MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1 env var.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -48,7 +48,7 @@ export async function handleSetFirefoxPrefs(args: unknown): Promise<McpToolRespo
     const { getFirefox } = await import('../index.js');
     const firefox = await getFirefox();
 
-    // Get privileged ("chrome") contexts
+    // Get chrome contexts
     const result = await firefox.sendBiDiCommand('browsingContext.getTree', {
       'moz:scope': 'chrome',
     });
@@ -56,57 +56,44 @@ export async function handleSetFirefoxPrefs(args: unknown): Promise<McpToolRespo
     const contexts = result.contexts || [];
     if (contexts.length === 0) {
       throw new Error(
-        'No privileged contexts available. Ensure MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1 is set.'
+        'No chrome contexts available. Ensure MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1 is set.'
       );
     }
 
-    const driver = firefox.getDriver();
     const chromeContextId = contexts[0].context;
 
-    // Remember current context
-    const originalContextId = firefox.getCurrentContextId();
+    const results: string[] = [];
+    const errors: string[] = [];
 
-    try {
-      // Switch to chrome context
-      await driver.switchTo().window(chromeContextId);
-      await driver.setContext('chrome');
-
-      const results: string[] = [];
-      const errors: string[] = [];
-
-      // Set each preference
-      for (const [name, value] of prefEntries) {
-        try {
-          const script = generatePrefScript(name, value);
-          await driver.executeScript(script);
-          results.push(`  ${name} = ${JSON.stringify(value)}`);
-        } catch (error) {
-          errors.push(`  ${name}: ${error instanceof Error ? error.message : String(error)}`);
-        }
-      }
-
-      const output: string[] = [];
-      if (results.length > 0) {
-        output.push(`✅ Set ${results.length} preference(s):`);
-        output.push(...results);
-      }
-      if (errors.length > 0) {
-        output.push(`\n⚠️ Failed to set ${errors.length} preference(s):`);
-        output.push(...errors);
-      }
-
-      return successResponse(output.join('\n'));
-    } finally {
-      // Restore previous context (skip if already on the right chrome context)
+    // Set each preference using BiDi script.evaluate in chrome context
+    for (const [name, value] of prefEntries) {
       try {
-        if (originalContextId && originalContextId !== chromeContextId) {
-          await driver.setContext('content');
-          await driver.switchTo().window(originalContextId);
-        }
-      } catch {
-        // Ignore errors restoring context
+        const script = generatePrefScript(name, value);
+
+        // Execute in chrome context using BiDi
+        await firefox.sendBiDiCommand('script.evaluate', {
+          expression: script,
+          target: { context: chromeContextId },
+          awaitPromise: false,
+        });
+
+        results.push(`  ${name} = ${JSON.stringify(value)}`);
+      } catch (error) {
+        errors.push(`  ${name}: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
+
+    const output: string[] = [];
+    if (results.length > 0) {
+      output.push(`✅ Set ${results.length} preference(s):`);
+      output.push(...results);
+    }
+    if (errors.length > 0) {
+      output.push(`\n⚠️ Failed to set ${errors.length} preference(s):`);
+      output.push(...errors);
+    }
+
+    return successResponse(output.join('\n'));
   } catch (error) {
     if (error instanceof Error && error.message.includes('UnsupportedOperationError')) {
       return errorResponse(
@@ -126,7 +113,7 @@ export async function handleSetFirefoxPrefs(args: unknown): Promise<McpToolRespo
 export const getFirefoxPrefsTool = {
   name: 'get_firefox_prefs',
   description:
-    'Get Firefox preference values via a privileged API. Requires MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1 env var.',
+    'Get Firefox preference values via Services.prefs API. Requires MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1 env var.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -151,7 +138,7 @@ export async function handleGetFirefoxPrefs(args: unknown): Promise<McpToolRespo
     const { getFirefox } = await import('../index.js');
     const firefox = await getFirefox();
 
-    // Get privileged ("chrome") contexts
+    // Get chrome contexts
     const result = await firefox.sendBiDiCommand('browsingContext.getTree', {
       'moz:scope': 'chrome',
     });
@@ -159,79 +146,94 @@ export async function handleGetFirefoxPrefs(args: unknown): Promise<McpToolRespo
     const contexts = result.contexts || [];
     if (contexts.length === 0) {
       throw new Error(
-        'No privileged contexts available. Ensure MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1 is set.'
+        'No chrome contexts available. Ensure MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1 is set.'
       );
     }
 
-    const driver = firefox.getDriver();
     const chromeContextId = contexts[0].context;
 
-    // Remember current context
-    const originalContextId = firefox.getCurrentContextId();
+    const results: string[] = [];
+    const errors: string[] = [];
 
-    try {
-      // Switch to chrome context
-      await driver.switchTo().window(chromeContextId);
-      await driver.setContext('chrome');
-
-      const results: string[] = [];
-      const errors: string[] = [];
-
-      // Read each preference
-      for (const name of names) {
-        try {
-          // Use getPrefType to determine how to read the pref
-          const script = `
-            (function() {
-              const type = Services.prefs.getPrefType(${JSON.stringify(name)});
-              if (type === Services.prefs.PREF_INVALID) {
-                return { exists: false };
-              } else if (type === Services.prefs.PREF_BOOL) {
-                return { exists: true, value: Services.prefs.getBoolPref(${JSON.stringify(name)}) };
-              } else if (type === Services.prefs.PREF_INT) {
-                return { exists: true, value: Services.prefs.getIntPref(${JSON.stringify(name)}) };
-              } else {
-                return { exists: true, value: Services.prefs.getStringPref(${JSON.stringify(name)}) };
-              }
-            })()
-          `;
-          const prefResult = (await driver.executeScript(`return ${script}`)) as {
-            exists: boolean;
-            value?: unknown;
-          };
-
-          if (prefResult.exists) {
-            results.push(`  ${name} = ${JSON.stringify(prefResult.value)}`);
-          } else {
-            results.push(`  ${name} = (not set)`);
-          }
-        } catch (error) {
-          errors.push(`  ${name}: ${error instanceof Error ? error.message : String(error)}`);
-        }
-      }
-
-      const output: string[] = [];
-      if (results.length > 0) {
-        output.push(`📋 Firefox Preferences:`);
-        output.push(...results);
-      }
-      if (errors.length > 0) {
-        output.push(`\n⚠️ Failed to read ${errors.length} preference(s):`);
-        output.push(...errors);
-      }
-
-      return successResponse(output.join('\n'));
-    } finally {
-      // Restore previous context (skip if already on the right chrome context)
+    // Read each preference using BiDi
+    for (const name of names) {
       try {
-        if (originalContextId && originalContextId !== chromeContextId) {
-          await driver.setContext('content');
-          await driver.switchTo().window(originalContextId);
+        // Use getPrefType to determine how to read the pref
+        const script = `
+          (function() {
+            const type = Services.prefs.getPrefType(${JSON.stringify(name)});
+            if (type === Services.prefs.PREF_INVALID) {
+              return { exists: false };
+            } else if (type === Services.prefs.PREF_BOOL) {
+              return { exists: true, value: Services.prefs.getBoolPref(${JSON.stringify(name)}) };
+            } else if (type === Services.prefs.PREF_INT) {
+              return { exists: true, value: Services.prefs.getIntPref(${JSON.stringify(name)}) };
+            } else {
+              return { exists: true, value: Services.prefs.getStringPref(${JSON.stringify(name)}) };
+            }
+          })()
+        `;
+
+        // Execute in chrome context using BiDi
+        const bidiResult = await firefox.sendBiDiCommand('script.evaluate', {
+          expression: script,
+          target: { context: chromeContextId },
+          awaitPromise: false,
+        });
+
+        // Extract value from BiDi result (recursive deserialization)
+        const extractValue = (bidiRes: any): any => {
+          // BiDi wraps the actual result in { type: 'success', result: {...} }
+          const actualResult = bidiRes.type === 'success' ? bidiRes.result : bidiRes;
+
+          if (actualResult.type === 'undefined') return undefined;
+          if (actualResult.type === 'null') return null;
+          if (actualResult.type === 'string' || actualResult.type === 'number' || actualResult.type === 'boolean') {
+            return actualResult.value;
+          }
+          if (actualResult.type === 'object') {
+            // BiDi serializes objects as: { type: 'object', value: [[key, {type, value}], ...] }
+            const obj: any = {};
+            if (Array.isArray(actualResult.value)) {
+              for (const [key, val] of actualResult.value) {
+                obj[key] = extractValue(val);
+              }
+            }
+            return obj;
+          }
+          if (actualResult.type === 'array') {
+            // BiDi serializes arrays as: { type: 'array', value: [{type, value}, ...] }
+            if (Array.isArray(actualResult.value)) {
+              return actualResult.value.map((item: any) => extractValue(item));
+            }
+            return [];
+          }
+          return actualResult.value;
+        };
+
+        const prefResult = extractValue(bidiResult) as { exists: boolean; value?: unknown };
+
+        if (prefResult.exists) {
+          results.push(`  ${name} = ${JSON.stringify(prefResult.value)}`);
+        } else {
+          results.push(`  ${name} = (not set)`);
         }
-      } catch {
-        // Ignore errors restoring context
+      } catch (error) {
+        errors.push(`  ${name}: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
+
+    const output: string[] = [];
+    if (results.length > 0) {
+      output.push(`📋 Firefox Preferences:`);
+      output.push(...results);
+    }
+    if (errors.length > 0) {
+      output.push(`\n⚠️ Failed to read ${errors.length} preference(s):`);
+      output.push(...errors);
+    }
+
+    return successResponse(output.join('\n'));
   } catch (error) {
     if (error instanceof Error && error.message.includes('UnsupportedOperationError')) {
       return errorResponse(

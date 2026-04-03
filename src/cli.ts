@@ -99,24 +99,6 @@ export const cliOptions = {
     description: 'URL to open when Firefox starts (default: about:home)',
     default: process.env.START_URL ?? 'about:home',
   },
-  connectExisting: {
-    type: 'boolean',
-    description:
-      'Connect to an already-running Firefox instance via Marionette instead of launching a new one. Requires Firefox to be running with marionette.enabled=true (set in user.js or launched with --marionette).',
-    default: (process.env.CONNECT_EXISTING ?? 'false') === 'true',
-  },
-  marionettePort: {
-    type: 'number',
-    description: 'Marionette port to connect to when using --connect-existing (default: 2828)',
-    default: Number(process.env.MARIONETTE_PORT ?? '2828'),
-  },
-  marionetteHost: {
-    type: 'string',
-    description:
-      'Marionette host to connect to when using --connect-existing (default: 127.0.0.1).' +
-      ' Also used as the BiDi WebSocket connect address when different from 127.0.0.1.',
-    default: process.env.MARIONETTE_HOST ?? '127.0.0.1',
-  },
   env: {
     type: 'array',
     description:
@@ -131,20 +113,14 @@ export const cliOptions = {
     type: 'array',
     string: true,
     description:
-      'Set Firefox preference at startup via moz:firefoxOptions (format: name=value). Can be specified multiple times.',
+      'Set Firefox preference at startup (format: name=value). Can be specified multiple times. Requires MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1.',
     alias: 'p',
   },
-  enableScript: {
-    type: 'boolean',
+  remoteDebuggingPort: {
+    type: 'number',
     description:
-      'Enable the evaluate_script tool, which allows executing arbitrary JavaScript in the page context.',
-    default: (process.env.ENABLE_SCRIPT ?? 'false') === 'true',
-  },
-  enablePrivilegedContext: {
-    type: 'boolean',
-    description:
-      'Enable privileged context tools: list/select privileged contexts, evaluate privileged scripts, get/set Firefox prefs, and list extensions. Requires MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1.',
-    default: (process.env.ENABLE_PRIVILEGED_CONTEXT ?? 'false') === 'true',
+      'Port to connect to existing Firefox instance via BiDi WebSocket. When specified, Firefox will not be launched automatically.',
+    alias: 'r',
   },
 } satisfies Record<string, YargsOptions>;
 
@@ -159,6 +135,7 @@ export function parseArguments(version: string, argv = process.argv) {
       ],
       ['$0 --headless', 'Run Firefox in headless mode'],
       ['$0 --viewport 1280x720', 'Launch Firefox with viewport size of 1280x720px'],
+      ['$0 --remote-debugging-port 9222', 'Connect to existing Firefox on port 9222'],
       ['$0 --help', 'Print CLI options'],
     ]);
 

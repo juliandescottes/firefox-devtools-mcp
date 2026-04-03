@@ -3,14 +3,14 @@
  * Handles snapshot creation using bundled injected script
  */
 
-import type { IDriver, IElement } from '../core.js';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { logDebug } from '../../utils/logger.js';
 import type { Snapshot, SnapshotJson, InjectedScriptResult } from './types.js';
 import { formatSnapshotTree } from './formatter.js';
-import { UidResolver } from './resolver.js';
+import { UidResolver, type ElementReference } from './resolver.js';
+import type { FirefoxCore } from '../core.js';
 
 /**
  * Options for snapshot creation
@@ -25,14 +25,14 @@ export interface SnapshotOptions {
  * Uses bundled injected script for snapshot creation
  */
 export class SnapshotManager {
-  private driver: IDriver;
+  private core: FirefoxCore;
   private resolver: UidResolver;
   private injectedScript: string | null = null;
   private currentSnapshotId = 0;
 
-  constructor(driver: IDriver) {
-    this.driver = driver;
-    this.resolver = new UidResolver(driver);
+  constructor(core: FirefoxCore) {
+    this.core = core;
+    this.resolver = new UidResolver(core);
   }
 
   /**
@@ -157,9 +157,9 @@ export class SnapshotManager {
   }
 
   /**
-   * Resolve UID to WebElement (with staleness check and caching)
+   * Resolve UID to ElementReference (with staleness check and caching)
    */
-  async resolveUidToElement(uid: string): Promise<IElement> {
+  async resolveUidToElement(uid: string): Promise<ElementReference> {
     return await this.resolver.resolveUidToElement(uid);
   }
 
@@ -171,34 +171,84 @@ export class SnapshotManager {
   }
 
   /**
-   * Execute bundled injected snapshot script
+   * Execute bundled injected snapshot script using BiDi
    */
   private async executeInjectedScript(
     snapshotId: number,
     options?: SnapshotOptions
   ): Promise<InjectedScriptResult> {
     const scriptSource = this.getInjectedScript();
+    const contextId = this.core.getCurrentContextId();
 
-    // Inject and execute the bundled script
+    if (!contextId) {
+      throw new Error('No active context');
+    }
+
+    // Inject and execute the bundled script using BiDi script.evaluate
     // The script exposes window.__createSnapshot via IIFE global
     // Guard: Only inject once, then reuse
-    const result = await this.driver.executeScript<InjectedScriptResult>(
-      `
-      // Only inject the bundle if not already present
-      if (typeof window.__createSnapshot === 'undefined') {
-        ${scriptSource}
-        // Register the createSnapshot function globally
-        if (typeof __SnapshotInjected !== 'undefined' && __SnapshotInjected.createSnapshot) {
-          window.__createSnapshot = __SnapshotInjected.createSnapshot;
+    const result = await this.core.sendBiDiCommand('script.evaluate', {
+      expression: `
+        (function() {
+          // Only inject the bundle if not already present
+          if (typeof window.__createSnapshot === 'undefined') {
+            ${scriptSource}
+            // Register the createSnapshot function globally
+            if (typeof __SnapshotInjected !== 'undefined' && __SnapshotInjected.createSnapshot) {
+              window.__createSnapshot = __SnapshotInjected.createSnapshot;
+            }
+          }
+          // Call it with options
+          return window.__createSnapshot(${snapshotId}, ${JSON.stringify(options || {})});
+        })()
+      `,
+      target: { context: contextId },
+      awaitPromise: false,
+    });
+
+    // Extract the result value from BiDi response
+    if (result.type === 'exception') {
+      throw new Error(`Snapshot script error: ${result.exceptionDetails?.text || 'Unknown error'}`);
+    }
+
+    return this.extractValue(result) as InjectedScriptResult;
+  }
+
+  /**
+   * Extract value from BiDi script result
+   * Recursively deserializes BiDi's object/array format
+   */
+  private extractValue(result: any): unknown {
+    // BiDi wraps the actual result in { type: 'success', result: {...} }
+    // Extract the inner result first
+    const actualResult = result.type === 'success' ? result.result : result;
+
+    if (actualResult.type === 'undefined') {
+      return undefined;
+    }
+    if (actualResult.type === 'null') {
+      return null;
+    }
+    if (actualResult.type === 'string' || actualResult.type === 'number' || actualResult.type === 'boolean') {
+      return actualResult.value;
+    }
+    if (actualResult.type === 'object') {
+      // BiDi serializes objects as: { type: 'object', value: [[key, {type, value}], ...] }
+      const obj: any = {};
+      if (Array.isArray(actualResult.value)) {
+        for (const [key, val] of actualResult.value) {
+          obj[key] = this.extractValue(val);
         }
       }
-      // Call it with options
-      return window.__createSnapshot(arguments[0], arguments[1]);
-      `,
-      snapshotId,
-      options || {}
-    );
-
-    return result;
+      return obj;
+    }
+    if (actualResult.type === 'array') {
+      // BiDi serializes arrays as: { type: 'array', value: [{type, value}, ...] }
+      if (Array.isArray(actualResult.value)) {
+        return actualResult.value.map((item: any) => this.extractValue(item));
+      }
+      return [];
+    }
+    return actualResult.value;
   }
 }

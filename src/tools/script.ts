@@ -94,21 +94,21 @@ export async function handleEvaluateScript(args: unknown): Promise<McpToolRespon
 
     const { getFirefox } = await import('../index.js');
     const firefox = await getFirefox();
-    const driver = firefox.getDriver();
 
-    if (!driver) {
-      throw new Error('WebDriver not available');
+    const contextId = firefox.getCurrentContextId();
+    if (!contextId) {
+      throw new Error('No active context');
     }
 
     const scriptTimeout = timeout ?? DEFAULT_TIMEOUT;
 
-    // Prepare arguments: resolve UIDs to WebElements if provided
-    const resolvedArgs: unknown[] = [];
+    // Prepare arguments: resolve UIDs to ElementReferences if provided
+    const resolvedArgs: Array<{ sharedId: string }> = [];
     if (fnArgs && fnArgs.length > 0) {
       for (const arg of fnArgs) {
         try {
-          const element = await firefox.resolveUidToElement(arg.uid);
-          resolvedArgs.push(element);
+          const elementRef = await firefox.resolveUidToElement(arg.uid);
+          resolvedArgs.push({ sharedId: elementRef.sharedId });
         } catch (error) {
           const errorMsg = (error as Error).message;
 
@@ -130,19 +130,57 @@ export async function handleEvaluateScript(args: unknown): Promise<McpToolRespon
       }
     }
 
-    // Unified execution path: use executeScript with optional args
-    const evalCode = `
-      const fn = ${fnString};
-      const args = Array.from(arguments);
-      const result = fn(...args);
-      return result instanceof Promise ? result : Promise.resolve(result);
-    `;
+    // Execute using BiDi script.callFunction with timeout handling
+    const executionPromise = firefox.sendBiDiCommand('script.callFunction', {
+      functionDeclaration: fnString,
+      arguments: resolvedArgs,
+      target: { context: contextId },
+      awaitPromise: true,
+    });
 
-    // Set script timeout
-    await driver.manage().setTimeouts({ script: scriptTimeout });
+    // Apply timeout using Promise.race
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Script execution timeout')), scriptTimeout);
+    });
 
-    // Execute with resolved args (empty array if no args)
-    const result = await driver.executeScript(evalCode, ...resolvedArgs);
+    const bidiResult = (await Promise.race([executionPromise, timeoutPromise])) as any;
+
+    // Check for exceptions
+    if (bidiResult.type === 'exception') {
+      throw new Error(`Script error: ${bidiResult.exceptionDetails?.text || 'Unknown error'}`);
+    }
+
+    // Extract value from BiDi result (recursive deserialization)
+    const extractValue = (bidiRes: any): any => {
+      // BiDi wraps the actual result in { type: 'success', result: {...} }
+      const actualResult = bidiRes.type === 'success' ? bidiRes.result : bidiRes;
+
+      if (actualResult.type === 'undefined') return undefined;
+      if (actualResult.type === 'null') return null;
+      if (actualResult.type === 'string' || actualResult.type === 'number' || actualResult.type === 'boolean') {
+        return actualResult.value;
+      }
+      if (actualResult.type === 'object') {
+        // BiDi serializes objects as: { type: 'object', value: [[key, {type, value}], ...] }
+        const obj: any = {};
+        if (Array.isArray(actualResult.value)) {
+          for (const [key, val] of actualResult.value) {
+            obj[key] = extractValue(val);
+          }
+        }
+        return obj;
+      }
+      if (actualResult.type === 'array') {
+        // BiDi serializes arrays as: { type: 'array', value: [{type, value}, ...] }
+        if (Array.isArray(actualResult.value)) {
+          return actualResult.value.map((item: any) => extractValue(item));
+        }
+        return [];
+      }
+      return actualResult.value;
+    };
+
+    const result = extractValue(bidiResult);
 
     // Format output
     let output = 'Script ran on page and returned:\n';

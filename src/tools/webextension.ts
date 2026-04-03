@@ -145,10 +145,7 @@ export async function handleUninstallExtension(args: unknown): Promise<McpToolRe
 export const listExtensionsTool = {
   name: 'list_extensions',
   description:
-    // MOZ_REMOTE_ALLOW_SYSTEM_ACCESS is required because the tool relies on the
-    // privileged AddonManager API as a workaround for the currently missing
-    // webExtension.getExtensions WebDriver BiDi command.
-    'List installed Firefox extensions with UUIDs and background scripts. Requires MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1 env var.',
+    'List installed Firefox extensions with UUIDs and background scripts. Uses chrome-privileged AddonManager API as workaround for missing webExtension.getExtensions BiDi command. Requires MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1 env var.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -167,8 +164,7 @@ export const listExtensionsTool = {
       },
       isSystem: {
         type: 'boolean',
-        description:
-          'Optional: Filter by system/built-in (true) or user-installed (false) extensions',
+        description: 'Optional: Filter by system/built-in (true) or user-installed (false) extensions',
       },
     },
   },
@@ -188,7 +184,9 @@ interface ExtensionInfo {
 
 function formatExtensionList(extensions: ExtensionInfo[], filterId?: string): string {
   if (extensions.length === 0) {
-    return filterId ? `🔍 Extension not found: ${filterId}` : '📦 No extensions installed';
+    return filterId
+      ? `🔍 Extension not found: ${filterId}`
+      : '📦 No extensions installed';
   }
 
   const lines: string[] = [
@@ -221,18 +219,17 @@ function formatExtensionList(extensions: ExtensionInfo[], filterId?: string): st
 
 export async function handleListExtensions(args: unknown): Promise<McpToolResponse> {
   try {
-    const { ids, name, isActive, isSystem } =
-      (args as {
-        ids?: string[];
-        name?: string;
-        isActive?: boolean;
-        isSystem?: boolean;
-      }) || {};
+    const { ids, name, isActive, isSystem } = (args as {
+      ids?: string[];
+      name?: string;
+      isActive?: boolean;
+      isSystem?: boolean;
+    }) || {};
 
     const { getFirefox } = await import('../index.js');
     const firefox = await getFirefox();
 
-    // Get privileged ("chrome") contexts
+    // Get chrome contexts
     const result = await firefox.sendBiDiCommand('browsingContext.getTree', {
       'moz:scope': 'chrome',
     });
@@ -240,26 +237,18 @@ export async function handleListExtensions(args: unknown): Promise<McpToolRespon
     const contexts = result.contexts || [];
     if (contexts.length === 0) {
       throw new Error(
-        'No privileged contexts available. Ensure MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1 is set.'
+        'No chrome contexts available. Ensure MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1 is set.'
       );
     }
 
-    const driver = firefox.getDriver();
     const chromeContextId = contexts[0].context;
-    const originalContextId = firefox.getCurrentContextId();
 
-    try {
-      // Switch to chrome context
-      await driver.switchTo().window(chromeContextId);
-      await driver.setContext('chrome');
+    // Execute chrome-privileged script to get extensions using BiDi
+    const filterParams = { ids, name, isActive, isSystem };
 
-      // Execute chrome-privileged script to get extensions
-      // Use executeAsyncScript for async operations
-      const filterParams = { ids, name, isActive, isSystem };
-      const script = `
-        const callback = arguments[arguments.length - 1];
-        const filter = ${JSON.stringify(filterParams)};
-        (async () => {
+    const bidiResult = await firefox.sendBiDiCommand('script.callFunction', {
+      functionDeclaration: `
+        async function(filter) {
           try {
             const { AddonManager } = ChromeUtils.importESModule("resource://gre/modules/AddonManager.sys.mjs");
             let addons = await AddonManager.getAllAddons();
@@ -300,37 +289,43 @@ export async function handleListExtensions(args: unknown): Promise<McpToolRespon
               });
             }
 
-            callback(extensions);
+            return extensions;
           } catch (error) {
-            callback([]);
+            return [];
           }
-        })();
-      `;
-
-      const extensions = (await driver.executeAsyncScript(script)) as ExtensionInfo[];
-
-      // Build filter description for output
-      const filterDesc = [
-        ids && ids.length > 0 ? `ids: [${ids.join(', ')}]` : null,
-        name ? `name: "${name}"` : null,
-        typeof isActive === 'boolean' ? `active: ${isActive}` : null,
-        typeof isSystem === 'boolean' ? `system: ${isSystem}` : null,
-      ]
-        .filter(Boolean)
-        .join(', ');
-
-      return successResponse(formatExtensionList(extensions, filterDesc || undefined));
-    } finally {
-      // Restore previous context (skip if already on the right chrome context)
-      try {
-        if (originalContextId && originalContextId !== chromeContextId) {
-          await driver.setContext('content');
-          await driver.switchTo().window(originalContextId);
         }
-      } catch {
-        // Ignore errors restoring context
+      `,
+      arguments: [{ type: 'object', value: filterParams }],
+      target: { context: chromeContextId },
+      awaitPromise: true,
+    });
+
+    // Extract value from BiDi result
+    const extractValue = (bidiRes: any): any => {
+      if (bidiRes.type === 'undefined') return undefined;
+      if (bidiRes.type === 'null') return null;
+      if (bidiRes.type === 'string' || bidiRes.type === 'number' || bidiRes.type === 'boolean') {
+        return bidiRes.value;
       }
-    }
+      if (bidiRes.type === 'object' || bidiRes.type === 'array') {
+        return bidiRes.value;
+      }
+      return bidiRes.value;
+    };
+
+    const extensions = (bidiResult.type === 'success' ? extractValue(bidiResult.result) : []) as ExtensionInfo[];
+
+    // Build filter description for output
+    const filterDesc = [
+      ids && ids.length > 0 ? `ids: [${ids.join(', ')}]` : null,
+      name ? `name: "${name}"` : null,
+      typeof isActive === 'boolean' ? `active: ${isActive}` : null,
+      typeof isSystem === 'boolean' ? `system: ${isSystem}` : null,
+    ]
+      .filter(Boolean)
+      .join(', ');
+
+    return successResponse(formatExtensionList(extensions, filterDesc || undefined));
   } catch (error) {
     if (error instanceof Error && error.message.includes('UnsupportedOperationError')) {
       return errorResponse(

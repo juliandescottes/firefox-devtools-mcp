@@ -170,13 +170,13 @@ When Firefox runs in WebDriver BiDi mode (automated testing), it applies [Recomm
 
 **Setting preferences:**
 
-At startup via CLI:
+At startup via CLI (requires `MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1`):
 ```bash
 # Enable ML/AI features like Smart Window
 npx firefox-devtools-mcp --pref "browser.ml.enable=true"
 ```
 
-At runtime via tools (requires `MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1`):
+At runtime via tools:
 ```javascript
 // Set preferences (e.g., enable ML features)
 await set_firefox_prefs({ prefs: { "browser.ml.enable": true } });
@@ -491,3 +491,5 @@ When contributing to the Firefox client:
 3. **Copy working patterns** - Use test scripts as templates
 4. **Test incrementally** - Small, focused tests reveal issues quickly
 5. **Document lessons** - Update this doc with new learnings
+
+See `tasks/README.md` for development workflow and CR process.

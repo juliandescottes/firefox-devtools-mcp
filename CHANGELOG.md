@@ -7,46 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.9.1] - 2026-03-29
-
-### Fixed
-- `SERVER_VERSION` now reads from `package.json` dynamically instead of hardcoded value
-- Connect-existing mode: session cleanup, BiDi support, `--marionette-host` parameter
-- Resolved 11 security vulnerabilities in dependencies
-
-### Changed
-- Removed fragile `process.on` handlers in test setup that masked real errors
-- Added unit tests for connect-existing mode (BiDi, session cleanup, reconnect)
-
-## [0.9.0] - 2026-03-28
-
-### Added
-- Merged features from Mozilla's fork (PR #46):
-  - Content script evaluation (`--enable-script` flag)
-  - Privileged context support (`--enable-privileged-context` flag)
-  - WebExtension tools: install, uninstall, and list extensions
-  - Firefox restart tool with runtime reconfiguration
-  - Preferences configuration via CLI (`--pref`) and runtime tools
-  - Environment variables and output capture (`--env`, `--output-file`)
-  - WebDriver BiDi command support
-  - MOZ_LOG integration
-- Repository adopted by Mozilla
-
-### Changed
-- Script evaluation and privileged context are now opt-in via CLI flags
-- Author updated to Mozilla
-- Removed non-English documentation files
-
-## [0.8.1] - 2026-03-17
-
-### Fixed
-- Increase snapshot test timeout
-
-## [0.8.0] - 2026-03-17
-
-### Added
-- Support --connect-existing to attach to running Firefox
-
 ## [0.7.1] - 2026-02-13
 
 ### Fixed
@@ -72,7 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Enhanced Vue/Livewire/Alpine.js support**: New snapshot options for modern JavaScript frameworks
   - `includeAll` parameter: Include all visible elements without relevance filtering
   - `selector` parameter: Scope snapshot to specific DOM subtree using CSS selector
-  - Fixes [#36](https://github.com/mozilla/firefox-devtools-mcp/issues/36) - DOM filtering problem with Vue and Livewire applications
+  - Fixes [#36](https://github.com/freema/firefox-devtools-mcp/issues/36) - DOM filtering problem with Vue and Livewire applications
 - **Test fixtures**: Added new HTML fixtures for testing visibility edge cases (`visibility.html`, `selector.html`)
 
 ### Changed
@@ -99,7 +59,7 @@ Released on npm, see GitHub releases for details.
 ### Added
 - Windows-specific integration test runner (`scripts/run-integration-tests-windows.mjs`)
   - Runs integration tests directly via Node.js to avoid vitest fork issues on Windows
-  - See [#33](https://github.com/mozilla/firefox-devtools-mcp/issues/33) for details
+  - See [#33](https://github.com/freema/firefox-devtools-mcp/issues/33) for details
 - Documentation for Windows integration tests in `docs/ci-and-release.md`
 - Branch protection enabled on `main` branch
 
@@ -224,17 +184,15 @@ Released on npm, see GitHub releases for details.
 - UID-based element referencing system
 - Headless mode support
 
-[0.9.1]: https://github.com/mozilla/firefox-devtools-mcp/compare/0.9.0...0.9.1
-[0.9.0]: https://github.com/mozilla/firefox-devtools-mcp/compare/0.8.1...0.9.0
-[0.7.1]: https://github.com/mozilla/firefox-devtools-mcp/compare/v0.7.0...v0.7.1
-[0.7.0]: https://github.com/mozilla/firefox-devtools-mcp/compare/v0.6.1...v0.7.0
-[0.6.1]: https://github.com/mozilla/firefox-devtools-mcp/compare/v0.6.0...v0.6.1
-[0.5.3]: https://github.com/mozilla/firefox-devtools-mcp/compare/v0.5.2...v0.5.3
-[0.5.2]: https://github.com/mozilla/firefox-devtools-mcp/compare/v0.5.1...v0.5.2
-[0.5.1]: https://github.com/mozilla/firefox-devtools-mcp/compare/v0.5.0...v0.5.1
-[0.5.0]: https://github.com/mozilla/firefox-devtools-mcp/compare/v0.4.0...v0.5.0
-[0.4.0]: https://github.com/mozilla/firefox-devtools-mcp/compare/v0.3.0...v0.4.0
-[0.3.0]: https://github.com/mozilla/firefox-devtools-mcp/compare/v0.2.5...v0.3.0
-[0.2.5]: https://github.com/mozilla/firefox-devtools-mcp/compare/v0.2.3...v0.2.5
-[0.2.3]: https://github.com/mozilla/firefox-devtools-mcp/compare/v0.2.0...v0.2.3
-[0.2.0]: https://github.com/mozilla/firefox-devtools-mcp/releases/tag/v0.2.0
+[0.7.1]: https://github.com/freema/firefox-devtools-mcp/compare/v0.7.0...v0.7.1
+[0.7.0]: https://github.com/freema/firefox-devtools-mcp/compare/v0.6.1...v0.7.0
+[0.6.1]: https://github.com/freema/firefox-devtools-mcp/compare/v0.6.0...v0.6.1
+[0.5.3]: https://github.com/freema/firefox-devtools-mcp/compare/v0.5.2...v0.5.3
+[0.5.2]: https://github.com/freema/firefox-devtools-mcp/compare/v0.5.1...v0.5.2
+[0.5.1]: https://github.com/freema/firefox-devtools-mcp/compare/v0.5.0...v0.5.1
+[0.5.0]: https://github.com/freema/firefox-devtools-mcp/compare/v0.4.0...v0.5.0
+[0.4.0]: https://github.com/freema/firefox-devtools-mcp/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/freema/firefox-devtools-mcp/compare/v0.2.5...v0.3.0
+[0.2.5]: https://github.com/freema/firefox-devtools-mcp/compare/v0.2.3...v0.2.5
+[0.2.3]: https://github.com/freema/firefox-devtools-mcp/compare/v0.2.0...v0.2.3
+[0.2.0]: https://github.com/freema/firefox-devtools-mcp/releases/tag/v0.2.0

@@ -2,7 +2,7 @@
  * Console event handling with lifecycle hooks
  */
 
-import type { WebDriver } from 'selenium-webdriver';
+import type { BiDiConnection } from '../bidi-connection.js';
 import type { ConsoleMessage } from '../types.js';
 import { logDebug } from '../../utils/logger.js';
 
@@ -23,7 +23,7 @@ export class ConsoleEvents {
   private options: ConsoleEventsOptions;
 
   constructor(
-    private driver: WebDriver,
+    private connection: BiDiConnection,
     options: ConsoleEventsOptions = {}
   ) {
     this.options = {
@@ -40,24 +40,15 @@ export class ConsoleEvents {
       return;
     }
 
-    const bidi = await this.driver.getBidi();
-    await bidi.subscribe('log.entryAdded', contextId ? [contextId] : undefined);
+    // Subscribe to console log events
+    await this.connection.subscribe(
+      ['log.entryAdded', 'browsingContext.load', 'browsingContext.domContentLoaded'],
+      contextId ? [contextId] : undefined
+    );
 
-    // Subscribe to navigation events for lifecycle hooks
-    try {
-      await bidi.subscribe('browsingContext.load', contextId ? [contextId] : undefined);
-      await bidi.subscribe('browsingContext.domContentLoaded', contextId ? [contextId] : undefined);
-    } catch {
-      logDebug(
-        'Navigation events subscription skipped (may not be available in this Firefox version)'
-      );
-    }
-
-    const ws: any = bidi.socket;
-    ws.on('message', (data: any) => {
+    // Register message handler
+    this.connection.on('message', (payload: any) => {
       try {
-        const payload = JSON.parse(data.toString());
-
         // Handle console messages
         if (payload?.method === 'log.entryAdded') {
           const entry = payload.params;
@@ -84,7 +75,7 @@ export class ConsoleEvents {
             this.options.onNavigate();
           }
         }
-      } catch {
+      } catch (err) {
         // ignore parse errors
       }
     });

@@ -3,7 +3,10 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { listNetworkRequestsTool, getNetworkRequestTool } from '../../src/tools/network.js';
+import {
+  listNetworkRequestsTool,
+  getNetworkRequestTool,
+} from '../../src/tools/network.js';
 
 describe('Network Tools', () => {
   describe('Tool Definitions', () => {

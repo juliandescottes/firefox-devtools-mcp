@@ -3,16 +3,14 @@
  * Handles UID validation, resolution to selectors/elements, and element caching
  */
 
-import type { IDriver, IElement } from '../core.js';
 import { logDebug } from '../../utils/logger.js';
-import type { UidEntry } from './types.js';
+import type { UidEntry, ElementCacheEntry } from './types.js';
+import type { FirefoxCore } from '../core.js';
 
-interface IElementCacheEntry {
-  selector: string;
-  xpath?: string;
-  cachedElement: IElement;
-  snapshotId: number;
-  timestamp: number;
+// Element reference returned by BiDi script.evaluate
+export interface ElementReference {
+  sharedId: string;
+  handle?: string;
 }
 
 /**
@@ -21,10 +19,10 @@ interface IElementCacheEntry {
  */
 export class UidResolver {
   private uidToEntry = new Map<string, UidEntry>();
-  private elementCache = new Map<string, IElementCacheEntry>();
+  private elementCache = new Map<string, ElementCacheEntry>();
   private currentSnapshotId = 0;
 
-  constructor(private driver: IDriver) {}
+  constructor(private core: FirefoxCore) {}
 
   /**
    * Update current snapshot ID
@@ -95,10 +93,10 @@ export class UidResolver {
   }
 
   /**
-   * Resolve UID to element (with staleness check and caching)
+   * Resolve UID to ElementReference (with staleness check and caching)
    * Tries CSS first, falls back to XPath
    */
-  async resolveUidToElement(uid: string): Promise<IElement> {
+  async resolveUidToElement(uid: string): Promise<ElementReference> {
     this.validateUid(uid);
 
     const entry = this.uidToEntry.get(uid);
@@ -110,11 +108,11 @@ export class UidResolver {
     const cached = this.elementCache.get(uid);
     if (cached?.cachedElement) {
       try {
-        // Validate element is still alive
-        await cached.cachedElement.isDisplayed();
+        // Validate element is still alive by trying to access it
+        await this.validateElementReference(cached.cachedElement);
         logDebug(`Using cached element for UID: ${uid}`);
         return cached.cachedElement;
-      } catch {
+      } catch (e) {
         // Element is stale, re-find it
         logDebug(`Cached element stale for UID: ${uid}, re-finding...`);
       }
@@ -122,7 +120,7 @@ export class UidResolver {
 
     // Try CSS selector first
     try {
-      const element = await this.driver.findElement({ using: 'css selector', value: entry.css });
+      const element = await this.findElementByCSS(entry.css);
 
       // Update cache
       this.elementCache.set(uid, {
@@ -135,14 +133,14 @@ export class UidResolver {
 
       logDebug(`Found element by CSS for UID: ${uid}`);
       return element;
-    } catch {
+    } catch (cssError) {
       logDebug(`CSS selector failed for UID: ${uid}, trying XPath fallback...`);
 
       // Fallback to XPath if available
       const xpathSelector = entry.xpath;
       if (xpathSelector) {
         try {
-          const element = await this.driver.findElement({ using: 'xpath', value: xpathSelector });
+          const element = await this.findElementByXPath(xpathSelector);
 
           // Update cache
           this.elementCache.set(uid, {
@@ -155,7 +153,7 @@ export class UidResolver {
 
           logDebug(`Found element by XPath for UID: ${uid}`);
           return element;
-        } catch {
+        } catch (xpathError) {
           throw new Error(
             `Element not found for UID: ${uid}. The element may have changed. Take a fresh snapshot.`
           );
@@ -165,6 +163,89 @@ export class UidResolver {
       throw new Error(
         `Element not found for UID: ${uid}. The element may have changed. Take a fresh snapshot.`
       );
+    }
+  }
+
+  /**
+   * Find element by CSS selector using BiDi browsingContext.locateNodes
+   */
+  private async findElementByCSS(selector: string): Promise<ElementReference> {
+    const contextId = this.core.getCurrentContextId();
+    if (!contextId) {
+      throw new Error('No active context');
+    }
+
+    const result = await this.core.sendBiDiCommand('browsingContext.locateNodes', {
+      context: contextId,
+      locator: {
+        type: 'css',
+        value: selector,
+      },
+      maxNodeCount: 1,
+    });
+
+    // Result format: { nodes: [NodeRemoteValue, ...] }
+    if (result.nodes && result.nodes.length > 0) {
+      const node = result.nodes[0];
+      if (node.sharedId) {
+        return { sharedId: node.sharedId, handle: node.handle };
+      }
+    }
+
+    throw new Error(`Element not found: ${selector}`);
+  }
+
+  /**
+   * Find element by XPath using BiDi browsingContext.locateNodes
+   */
+  private async findElementByXPath(xpath: string): Promise<ElementReference> {
+    const contextId = this.core.getCurrentContextId();
+    if (!contextId) {
+      throw new Error('No active context');
+    }
+
+    const result = await this.core.sendBiDiCommand('browsingContext.locateNodes', {
+      context: contextId,
+      locator: {
+        type: 'xpath',
+        value: xpath,
+      },
+      maxNodeCount: 1,
+    });
+
+    // Result format: { nodes: [NodeRemoteValue, ...] }
+    if (result.nodes && result.nodes.length > 0) {
+      const node = result.nodes[0];
+      if (node.sharedId) {
+        return { sharedId: node.sharedId, handle: node.handle };
+      }
+    }
+
+    throw new Error(`Element not found: ${xpath}`);
+  }
+
+  /**
+   * Validate element reference is still alive
+   */
+  private async validateElementReference(elementRef: ElementReference): Promise<void> {
+    const contextId = this.core.getCurrentContextId();
+    if (!contextId) {
+      throw new Error('No active context');
+    }
+
+    // Try to access the element's tagName to verify it still exists
+    const result = await this.core.sendBiDiCommand('script.callFunction', {
+      functionDeclaration: 'function(el) { return el ? el.tagName : null; }',
+      arguments: [{ sharedId: elementRef.sharedId }],
+      target: { context: contextId },
+      awaitPromise: false,
+    });
+
+    // BiDi wraps result in { type: 'success', result: {...} }
+    const actualResult = result.type === 'success' ? result.result : result;
+
+    if (actualResult.type === 'null' || actualResult.type === 'undefined') {
+      throw new Error('Element reference is stale');
     }
   }
 }

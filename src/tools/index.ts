@@ -91,15 +91,15 @@ export {
   handleRestartFirefox,
 } from './firefox-management.js';
 
-// Privileged ("chrome") context tools
+// Chrome context tools (privileged JavaScript access)
 export {
-  listPrivilegedContextsTool,
-  selectPrivilegedContextTool,
-  evaluatePrivilegedScriptTool,
-  handleListPrivilegedContexts,
-  handleSelectPrivilegedContext,
-  handleEvaluatePrivilegedScript,
-} from './privileged-context.js';
+  listChromeContextsTool,
+  selectChromeContextTool,
+  evaluateChromeScriptTool,
+  handleListChromeContexts,
+  handleSelectChromeContext,
+  handleEvaluateChromeScript,
+} from './chrome-context.js';
 
 // Firefox preferences tools
 export {

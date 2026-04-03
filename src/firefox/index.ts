@@ -3,7 +3,7 @@
  */
 
 import type { FirefoxLaunchOptions, ConsoleMessage } from './types.js';
-import { FirefoxCore, type IElement } from './core.js';
+import { FirefoxCore } from './core.js';
 import { ConsoleEvents, NetworkEvents } from './events/index.js';
 import { DomInteractions } from './dom.js';
 import { PageManagement } from './pages.js';
@@ -31,10 +31,10 @@ export class FirefoxClient {
   async connect(): Promise<void> {
     await this.core.connect();
 
-    const driver = this.core.getDriver();
+    const connection = this.core.getConnection();
 
     // Initialize snapshot manager first
-    this.snapshot = new SnapshotManager(driver);
+    this.snapshot = new SnapshotManager(this.core);
 
     // Create centralized navigation handler for lifecycle hooks
     const onNavigate = () => {
@@ -45,42 +45,33 @@ export class FirefoxClient {
     };
 
     // Initialize event modules with lifecycle hooks
-    // BiDi-dependent modules (console/network events) require a full WebDriver with
-    // BiDi support. When using --connect-existing, we bypass selenium's BiDi layer
-    // so these modules are not available.
-    const hasBidi = 'getBidi' in driver && typeof driver.getBidi === 'function';
+    // Note: autoClearOnNavigate is false to preserve logs across all tabs
+    // Users can manually call clearConsoleMessages() if needed
+    this.consoleEvents = new ConsoleEvents(connection, {
+      onNavigate,
+      autoClearOnNavigate: false,
+    });
 
-    if (hasBidi) {
-      // Cast to any for BiDi-specific APIs that only exist on selenium WebDriver
-      this.consoleEvents = new ConsoleEvents(driver as any, {
-        onNavigate,
-        autoClearOnNavigate: false,
-      });
-
-      this.networkEvents = new NetworkEvents(driver as any, {
-        onNavigate,
-        autoClearOnNavigate: false,
-      });
-    }
+    this.networkEvents = new NetworkEvents(connection, {
+      onNavigate,
+      autoClearOnNavigate: false,
+    });
 
     // Initialize DOM with UID resolver callback
-    this.dom = new DomInteractions(driver, (uid: string) =>
+    this.dom = new DomInteractions(this.core, (uid: string) =>
       this.snapshot!.resolveUidToElement(uid)
     );
 
     this.pages = new PageManagement(
-      driver,
+      this.core,
       () => this.core.getCurrentContextId(),
       (id: string) => this.core.setCurrentContextId(id)
     );
 
     // Subscribe to console and network events for ALL contexts (not just current)
-    if (this.consoleEvents) {
-      await this.consoleEvents.subscribe(undefined);
-    }
-    if (this.networkEvents) {
-      await this.networkEvents.subscribe(undefined);
-    }
+    // This ensures we capture logs from all tabs, not just the initial one
+    await this.consoleEvents.subscribe(undefined);
+    await this.networkEvents.subscribe(undefined);
   }
 
   // ============================================================================
@@ -186,14 +177,14 @@ export class FirefoxClient {
 
   async getConsoleMessages(): Promise<ConsoleMessage[]> {
     if (!this.consoleEvents) {
-      throw new Error('Console events not available in connect-existing mode (requires BiDi)');
+      throw new Error('Not connected');
     }
     return this.consoleEvents.getMessages();
   }
 
   clearConsoleMessages(): void {
     if (!this.consoleEvents) {
-      throw new Error('Console events not available in connect-existing mode (requires BiDi)');
+      throw new Error('Not connected');
     }
     this.consoleEvents.clearMessages();
   }
@@ -294,28 +285,28 @@ export class FirefoxClient {
 
   async startNetworkMonitoring(): Promise<void> {
     if (!this.networkEvents) {
-      throw new Error('Network events not available in connect-existing mode (requires BiDi)');
+      throw new Error('Not connected');
     }
     this.networkEvents.startMonitoring();
   }
 
   async stopNetworkMonitoring(): Promise<void> {
     if (!this.networkEvents) {
-      throw new Error('Network events not available in connect-existing mode (requires BiDi)');
+      throw new Error('Not connected');
     }
     this.networkEvents.stopMonitoring();
   }
 
   async getNetworkRequests(): Promise<any[]> {
     if (!this.networkEvents) {
-      throw new Error('Network events not available in connect-existing mode (requires BiDi)');
+      throw new Error('Not connected');
     }
     return this.networkEvents.getRequests();
   }
 
   clearNetworkRequests(): void {
     if (!this.networkEvents) {
-      throw new Error('Network events not available in connect-existing mode (requires BiDi)');
+      throw new Error('Not connected');
     }
     this.networkEvents.clearRequests();
   }
@@ -338,7 +329,7 @@ export class FirefoxClient {
     return this.snapshot.resolveUidToSelector(uid);
   }
 
-  async resolveUidToElement(uid: string): Promise<IElement> {
+  async resolveUidToElement(uid: string): Promise<any> {
     if (!this.snapshot) {
       throw new Error('Not connected');
     }
@@ -383,14 +374,6 @@ export class FirefoxClient {
   }
 
   /**
-   * Get WebDriver instance (for advanced operations)
-   * @internal
-   */
-  getDriver(): any {
-    return this.core.getDriver();
-  }
-
-  /**
    * Get current browsing context ID (for advanced operations)
    * @internal
    */
@@ -399,11 +382,11 @@ export class FirefoxClient {
   }
 
   /**
-   * Update current browsing context ID
+   * Get chrome context ID (for privileged operations)
    * @internal
    */
-  setCurrentContextId(contextId: string): void {
-    this.core.setCurrentContextId(contextId);
+  getChromeContextId(): string | null {
+    return this.core.getChromeContextId();
   }
 
   /**
