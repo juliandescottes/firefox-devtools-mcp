@@ -155,7 +155,10 @@ export async function getFirefox(): Promise<FirefoxDevTools> {
   try {
     await firefox.connect();
     log('Firefox DevTools connection established');
-    pendingWarning = firefox.getAndClearProfileWarning();
+    const profileWarning = firefox.getAndClearProfileWarning();
+    if (profileWarning) {
+      pendingWarning = pendingWarning ? `${pendingWarning}\n\n${profileWarning}` : profileWarning;
+    }
     return firefox;
   } catch (error) {
     // Clean up before discarding — ensures the geckodriver process is killed
@@ -300,9 +303,39 @@ const allTools = [
     : []),
 ];
 
+function buildStartupWarnings(): string | null {
+  const warnings: string[] = [];
+
+  warnings.push(
+    '[security] Reminder: AI agents can be manipulated by malicious web content (prompt injection). Only visit trusted pages.'
+  );
+
+  if (args.enableScript) {
+    warnings.push(
+      '[security] using --enable-script: the agent can execute arbitrary JavaScript in any page context.'
+    );
+  }
+
+  if (args.enablePrivilegedContext) {
+    warnings.push(
+      '[security] using --enable-privileged-context: the agent has access to Firefox internal APIs. Use only to debug Firefox itself.'
+    );
+  }
+
+  if (args.connectExisting) {
+    warnings.push(
+      '[security] using --connect-existing: avoid connecting to a Firefox instance using a real profile — the agent can leak cookies and active sessions.'
+    );
+  }
+
+  return warnings.join('\n\n');
+}
+
 async function main() {
   log(`Starting ${SERVER_NAME} v${SERVER_VERSION}`);
   log(`Node.js ${version}`);
+
+  pendingWarning = buildStartupWarnings();
 
   // Log configuration
   logDebug(`Configuration:`);
