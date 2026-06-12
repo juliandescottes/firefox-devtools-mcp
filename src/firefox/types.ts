@@ -59,6 +59,15 @@ export interface PauseInfo {
 }
 
 /**
+ * A single result captured by a logpoint hit
+ */
+export interface LogpointResult {
+  value: unknown;
+  error?: string;
+  timestamp: number;
+}
+
+/**
  * Firefox launch options
  */
 export interface FirefoxLaunchOptions {

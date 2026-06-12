@@ -3,15 +3,23 @@
  */
 
 import type { WebDriver } from 'selenium-webdriver';
-import type { PauseInfo } from '../types.js';
+import type { LogpointResult } from '../types.js';
 import { logDebug } from '../../utils/logger.js';
 
+interface LogpointEntry {
+  location: { url: string; line: number };
+  expression: string;
+  results: LogpointResult[];
+}
+
 export class DebuggingEvents {
-  private pauseStates: Map<string, PauseInfo> = new Map();
-  private pauseWaiters: Map<string, Array<(info: PauseInfo) => void>> = new Map();
+  private logpoints: Map<string, LogpointEntry> = new Map();
   private subscribed = false;
 
-  constructor(private driver: WebDriver) {}
+  constructor(
+    private driver: WebDriver,
+    private sendBiDiCommand: (method: string, params: Record<string, any>) => Promise<any>
+  ) {}
 
   /**
    * Subscribe to moz:debugging events
@@ -37,21 +45,16 @@ export class DebuggingEvents {
         const payload = JSON.parse(data.toString());
 
         if (payload?.method === 'moz:debugging.paused') {
-          const info = payload.params as PauseInfo;
-          this.pauseStates.set(info.context, info);
-          logDebug(
-            `moz:Debugging paused in context: ${info.context} at ${info.url}:${info.line}:${info.column}`
-          );
-
-          const waiters = this.pauseWaiters.get(info.context) ?? [];
-          this.pauseWaiters.delete(info.context);
-          for (const waiter of waiters) {
-            waiter(info);
+          const { context, url, line, column } = payload.params;
+          const logpointId = this.findLogpointByLocation(url, line);
+          if (logpointId) {
+            void this.handleLogpointPause(context, logpointId);
+            return;
           }
+          logDebug(`moz:Debugging paused in context: ${context} at ${url}:${line}:${column}`);
         }
 
         if (payload?.method === 'moz:debugging.resumed') {
-          this.pauseStates.delete(payload.params.context);
           logDebug(`moz:Debugging resumed in context: ${payload.params.context}`);
         }
       } catch {
@@ -63,38 +66,74 @@ export class DebuggingEvents {
     logDebug('moz:debugging listener active');
   }
 
-  getPauseState(contextId: string): PauseInfo | null {
-    return this.pauseStates.get(contextId) || null;
+  addLogpoint(logpointId: string, url: string, line: number, expression: string): void {
+    this.logpoints.set(logpointId, {
+      location: { url, line },
+      expression,
+      results: [],
+    });
   }
 
-  waitForPause(contextId: string, timeoutInMs: number = 30000): Promise<PauseInfo> {
-    return new Promise((resolve, reject) => {
-      const existing = this.pauseStates.get(contextId);
-      if (existing) {
-        resolve(existing);
-        return;
+  removeLogpoint(logpointId: string): void {
+    this.logpoints.delete(logpointId);
+  }
+
+  getLogpointResults(logpointId: string): LogpointResult[] | null {
+    return this.logpoints.get(logpointId)?.results ?? null;
+  }
+
+  private findLogpointByLocation(url: string, line: number): string | null {
+    for (const [logpointId, entry] of this.logpoints) {
+      if (entry.location.url === url && entry.location.line === line) {
+        return logpointId;
       }
+    }
+    return null;
+  }
 
-      const timer = setTimeout(() => {
-        const waiters = this.pauseWaiters.get(contextId);
-        if (waiters) {
-          const idx = waiters.indexOf(waiter);
-          if (idx !== -1) {
-            waiters.splice(idx, 1);
-          }
-        }
-        reject(new Error(`Timed out waiting for pause on context ${contextId}`));
-      }, timeoutInMs);
+  private async handleLogpointPause(contextId: string, logpointId: string): Promise<void> {
+    const entry = this.logpoints.get(logpointId);
+    if (!entry) {
+      return;
+    }
 
-      const waiter = (info: PauseInfo) => {
-        clearTimeout(timer);
-        resolve(info);
+    logDebug(`Logpoint hit: ${logpointId} in context ${contextId}`);
+
+    try {
+      const result = await this.sendBiDiCommand('script.evaluate', {
+        expression: entry.expression,
+        target: { context: contextId },
+        awaitPromise: false,
+      });
+
+      const evalResult = result as {
+        type: string;
+        result?: unknown;
+        exceptionDetails?: { text: string };
       };
 
-      if (!this.pauseWaiters.has(contextId)) {
-        this.pauseWaiters.set(contextId, []);
+      if (evalResult.type === 'exception') {
+        entry.results.push({
+          value: null,
+          error: evalResult.exceptionDetails?.text ?? 'Unknown error',
+          timestamp: Date.now(),
+        });
+      } else {
+        entry.results.push({
+          value: evalResult.result,
+          timestamp: Date.now(),
+        });
       }
-      this.pauseWaiters.get(contextId)!.push(waiter);
-    });
+    } catch (error) {
+      entry.results.push({
+        value: null,
+        error: String(error),
+        timestamp: Date.now(),
+      });
+    } finally {
+      await this.sendBiDiCommand('moz:debugging.resume', { context: contextId }).catch((err) => {
+        logDebug(`Failed to resume after logpoint: ${String(err)}`);
+      });
+    }
   }
 }
