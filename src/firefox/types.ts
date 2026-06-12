@@ -48,6 +48,17 @@ export interface NetworkRecord {
 }
 
 /**
+ * BiDi debugging paused event payload
+ */
+export interface PauseInfo {
+  context: BrowsingContextId;
+  url: string;
+  column: number;
+  line: number;
+  callFrames: unknown[];
+}
+
+/**
  * Firefox launch options
  */
 export interface FirefoxLaunchOptions {
