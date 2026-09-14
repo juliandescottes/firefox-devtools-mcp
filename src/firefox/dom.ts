@@ -3,6 +3,7 @@
  */
 
 import { By, Key, WebDriver, WebElement } from 'selenium-webdriver';
+import type { Driver as FirefoxDriver } from 'selenium-webdriver/firefox.js';
 import type { Actions } from 'selenium-webdriver/lib/input.js';
 
 /**
@@ -518,9 +519,15 @@ export class DomInteractions {
 
   /**
    * Take screenshot of the entire page
+   * @param fullPage Capture the whole document via the Firefox-only full screenshot endpoint
    * @returns PNG as base64 string
    */
-  async takeScreenshotPage(): Promise<string> {
+  async takeScreenshotPage(fullPage = false): Promise<string> {
+    if (fullPage) {
+      // Note: when switching screenshots to WebDriver BiDi (Bug 2071799), we
+      // can use { origin: "document" } to handle full page screenshots.
+      return await (this.driver as FirefoxDriver).takeFullPageScreenshot();
+    }
     return await this.driver.takeScreenshot();
   }
 

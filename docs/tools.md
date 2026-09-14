@@ -306,10 +306,11 @@ Capture screenshots of the page or specific elements.
 
 _Read-only._
 
-Capture page screenshot as base64 PNG.
+Capture viewport screenshot as base64 PNG. Set fullPage for the whole scrollable document.
 
 Parameters:
 
+- `fullPage` (boolean, optional) - Capture the whole scrollable document (default: false)
 - `saveTo` (boolean | string, optional) - Save the screenshot to a file instead of returning it as image data in the response. Pass a file path, an existing directory (generated file inside), or true (generated file under ~/.firefox-devtools-mcp/output/). Relative paths resolve against the current working directory.
 
 ### `screenshot_by_uid`

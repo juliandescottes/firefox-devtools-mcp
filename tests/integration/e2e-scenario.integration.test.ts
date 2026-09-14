@@ -555,7 +555,24 @@ describe('E2E Scenario: Screenshot', () => {
     expect(typeof screenshot).toBe('string');
     expect(screenshot.length).toBeGreaterThan(100);
   }, 10000);
+
+  it('should capture the whole document when fullPage is set', async () => {
+    await firefox.setViewportSize(600, 300);
+
+    const viewport = pngSize(await firefox.takeScreenshotPage());
+    const fullPage = pngSize(await firefox.takeScreenshotPage(true));
+
+    expect(fullPage.height).toBeGreaterThan(viewport.height);
+  }, 15000);
 });
+
+/**
+ * Read the pixel dimensions out of a base64 PNG IHDR chunk.
+ */
+function pngSize(base64Png: string): { width: number; height: number } {
+  const buffer = Buffer.from(base64Png, 'base64');
+  return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
+}
 
 // ---------------------------------------------------------------------------
 // Tab Management
