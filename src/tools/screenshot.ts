@@ -17,13 +17,18 @@ const SAVE_TO_SCHEMA = {
 // Tool definitions
 export const screenshotPageTool = {
   name: 'screenshot_page',
-  description: 'Capture page screenshot as base64 PNG.',
+  description:
+    'Capture viewport screenshot as base64 PNG. Set fullPage for the whole scrollable document.',
   annotations: {
     readOnlyHint: true,
   },
   inputSchema: {
     type: 'object',
     properties: {
+      fullPage: {
+        type: 'boolean',
+        description: 'Capture the whole scrollable document (default: false)',
+      },
       saveTo: SAVE_TO_SCHEMA,
     },
   },
@@ -79,12 +84,12 @@ function imageResponse(base64Png: string): McpToolResponse {
 export const handleScreenshotPage = defineToolHandler(async function handleScreenshotPage(
   args: unknown
 ): Promise<McpToolResponse> {
-  const { saveTo } = (args ?? {}) as { saveTo?: boolean | string };
+  const { fullPage, saveTo } = (args ?? {}) as { fullPage?: boolean; saveTo?: boolean | string };
 
   const { getFirefox } = await import('../index.js');
   const firefox = await getFirefox();
 
-  const base64Png = await firefox.takeScreenshotPage();
+  const base64Png = await firefox.takeScreenshotPage(fullPage === true);
 
   if (!base64Png || typeof base64Png !== 'string') {
     throw new Error('Invalid screenshot data');

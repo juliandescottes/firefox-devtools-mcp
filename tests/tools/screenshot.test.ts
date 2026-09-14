@@ -43,6 +43,12 @@ describe('Screenshot Tools', () => {
       expect(properties?.saveTo?.type).toEqual(['boolean', 'string']);
     });
 
+    it('screenshotPageTool should have fullPage property', () => {
+      const { properties } = screenshotPageTool.inputSchema;
+      expect(properties?.fullPage).toBeDefined();
+      expect(properties?.fullPage?.type).toBe('boolean');
+    });
+
     it('screenshotByUidTool should require uid and have optional saveTo', () => {
       const { properties, required } = screenshotByUidTool.inputSchema;
       expect(properties).toBeDefined();
@@ -144,6 +150,37 @@ describe('Screenshot Tools', () => {
       expect(result.content[0]).toHaveProperty('type', 'image');
       expect(result.content[0]).toHaveProperty('data', FAKE_BASE64);
       expect(result.content[0]).toHaveProperty('mimeType', 'image/png');
+    });
+  });
+
+  describe('Handler: fullPage behavior', () => {
+    const FAKE_BASE64 = Buffer.from('fake-png-data').toString('base64');
+    let takeScreenshotPage: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      takeScreenshotPage = vi.fn().mockResolvedValue(FAKE_BASE64);
+      vi.doMock('../../src/index.js', () => ({
+        args: { unrestrictedSavePaths: true },
+        getFirefox: vi.fn().mockResolvedValue({ takeScreenshotPage }),
+      }));
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('should request a viewport screenshot by default', async () => {
+      const { handleScreenshotPage } = await import('../../src/tools/screenshot.js');
+      await handleScreenshotPage({});
+
+      expect(takeScreenshotPage).toHaveBeenCalledWith(false);
+    });
+
+    it('should request a full page screenshot when fullPage is true', async () => {
+      const { handleScreenshotPage } = await import('../../src/tools/screenshot.js');
+      await handleScreenshotPage({ fullPage: true });
+
+      expect(takeScreenshotPage).toHaveBeenCalledWith(true);
     });
   });
 

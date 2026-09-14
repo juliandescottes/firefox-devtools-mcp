@@ -480,11 +480,14 @@ export class FirefoxClient {
   // Screenshot
   // ============================================================================
 
-  async takeScreenshotPage(): Promise<string> {
+  /**
+   * @param fullPage Capture the whole scrollable document instead of the viewport
+   */
+  async takeScreenshotPage(fullPage = false): Promise<string> {
     if (!this.dom) {
       throw new Error('Not connected');
     }
-    return await this.dom.takeScreenshotPage();
+    return await this.dom.takeScreenshotPage(fullPage);
   }
 
   async takeScreenshotByUid(uid: string): Promise<string> {
