@@ -3,7 +3,11 @@
  * Surfaces BiDi download events and controls download behavior
  */
 
+import { mkdir } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
+
 import { successResponse, errorResponse, jsonResponse } from '../utils/response-helpers.js';
+import { assertAllowedPath, homeRoot } from '../utils/save-output.js';
 import { defineModule, defineToolHandler, type ToolDefinition } from './module.js';
 import type { McpToolResponse } from '../types/common.js';
 
@@ -51,7 +55,7 @@ export const clearDownloadsTool = {
 export const setDownloadBehaviorTool = {
   name: 'set_download_behavior',
   description:
-    'Control how downloads are handled: allow (save silently to the default download directory), deny (cancel), or reset to default. Avoids the native save-file dialog. Requires a recent Firefox.',
+    'Control how downloads are handled: allow (save to a destination folder), deny (cancel), or reset to default. Avoids the native save-file dialog. Requires a recent Firefox.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -59,7 +63,12 @@ export const setDownloadBehaviorTool = {
         type: 'string',
         enum: ['allowed', 'denied', 'default'],
         description:
-          "'allowed' saves downloads automatically, 'denied' cancels them, 'default' resets to the browser default",
+          "'allowed' saves downloads to `downloadFolder`, 'denied' cancels them, 'default' resets to the browser default",
+      },
+      downloadFolder: {
+        type: 'string',
+        description:
+          "Path to the folder where downloads should be stored, created if missing. Only used for behavior='allowed', where it defaults to ~/.firefox-devtools-mcp/downloads. Relative paths resolve against the current working directory.",
       },
     },
     required: ['behavior'],
@@ -125,8 +134,9 @@ export const handleClearDownloads = defineToolHandler(
 export const handleSetDownloadBehavior = defineToolHandler(async function handleSetDownloadBehavior(
   args: unknown
 ): Promise<McpToolResponse> {
-  const { behavior } = (args ?? {}) as {
+  const { behavior, downloadFolder } = (args ?? {}) as {
     behavior?: 'allowed' | 'denied' | 'default';
+    downloadFolder?: string;
   };
 
   if (!behavior) {
@@ -135,8 +145,21 @@ export const handleSetDownloadBehavior = defineToolHandler(async function handle
 
   const { getFirefox } = await import('../index.js');
   const firefox = await getFirefox();
-  await firefox.setDownloadBehavior(behavior);
 
+  if (behavior === 'allowed') {
+    // Firefox resolves relative paths against its own process cwd, which is unrelated to the
+    // server's when attaching to an already running browser, so only ever send an absolute path.
+    let folder = join(homeRoot(), 'downloads');
+    if (downloadFolder) {
+      folder = resolve(downloadFolder);
+      await assertAllowedPath(downloadFolder, folder, 'downloadFolder');
+    }
+    await mkdir(folder, { recursive: true });
+    await firefox.setDownloadBehavior('allowed', folder);
+    return successResponse(`Download behavior set to 'allowed' (folder='${folder}').`);
+  }
+
+  await firefox.setDownloadBehavior(behavior);
   return successResponse(`Download behavior set to '${behavior}'.`);
 });
 
