@@ -349,11 +349,12 @@ No parameters.
 
 ### `set_download_behavior`
 
-Control how downloads are handled: allow (save silently to the default download directory), deny (cancel), or reset to default. Avoids the native save-file dialog. Requires a recent Firefox.
+Control how downloads are handled: allow (save to a destination folder), deny (cancel), or reset to default. Avoids the native save-file dialog. Requires a recent Firefox.
 
 Parameters:
 
-- `behavior` (`allowed` | `denied` | `default`, required) - 'allowed' saves downloads automatically, 'denied' cancels them, 'default' resets to the browser default
+- `behavior` (`allowed` | `denied` | `default`, required) - 'allowed' saves downloads to `downloadFolder`, 'denied' cancels them, 'default' resets to the browser default
+- `downloadFolder` (string, optional) - Path to the folder where downloads should be stored, created if missing. Only used for behavior='allowed', where it defaults to ~/.firefox-devtools-mcp/downloads. Relative paths resolve against the current working directory.
 
 ## utilities
 

@@ -432,15 +432,24 @@ export class FirefoxClient {
 
   /**
    * Control how downloads are handled via the browser.setDownloadBehavior BiDi command.
-   * @param behavior 'allowed' saves downloads silently, 'denied' cancels them, 'default' resets
+   * @param behavior 'allowed' saves downloads to `downloadFolder`, 'denied' cancels them, 'default' resets
+   * @param downloadFolder the download folder to use for behavior=allowed
    */
-  async setDownloadBehavior(behavior: 'allowed' | 'denied' | 'default'): Promise<void> {
-    const downloadBehavior: Browser.DownloadBehavior | null =
-      behavior === 'default'
-        ? null
-        : behavior === 'allowed'
-          ? ({ type: 'allowed' } as unknown as Browser.DownloadBehavior)
-          : { type: 'denied' };
+  async setDownloadBehavior(behavior: 'allowed', downloadFolder: string): Promise<void>;
+  async setDownloadBehavior(behavior: 'denied' | 'default'): Promise<void>;
+  async setDownloadBehavior(
+    behavior: 'allowed' | 'denied' | 'default',
+    downloadFolder?: string
+  ): Promise<void> {
+    let downloadBehavior: Browser.DownloadBehavior | null = null;
+    if (behavior === 'allowed') {
+      if (!downloadFolder) {
+        throw new Error('downloadFolder is required for behavior "allowed"');
+      }
+      downloadBehavior = { type: 'allowed', destinationFolder: downloadFolder };
+    } else if (behavior === 'denied') {
+      downloadBehavior = { type: 'denied' };
+    }
     await this.getBidi().sendCommand('browser.setDownloadBehavior', { downloadBehavior });
   }
 

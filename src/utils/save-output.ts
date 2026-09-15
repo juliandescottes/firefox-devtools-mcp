@@ -12,7 +12,7 @@ export interface SavedOutput {
   bytes: number;
 }
 
-function homeRoot(): string {
+export function homeRoot(): string {
   return join(homedir(), '.firefox-devtools-mcp');
 }
 
@@ -44,20 +44,25 @@ export function isWithinRoot(root: string, candidate: string): boolean {
 }
 
 /**
- * Reject saveTo paths that escape the allowed roots, unless the server was
+ * Reject paths that escape the allowed roots, unless the server was
  * started with --unrestricted-save-paths. Relative paths must stay within the
  * current working directory; absolute paths must stay within
  * ~/.firefox-devtools-mcp.
+ * @param label the name of the tool argument the path came from, used in the error message
  */
-async function assertAllowedPath(saveTo: string, resolvedPath: string): Promise<void> {
+export async function assertAllowedPath(
+  inputPath: string,
+  resolvedPath: string,
+  label = 'saveTo'
+): Promise<void> {
   const { args } = await import('../index.js');
   if (args?.unrestrictedSavePaths) {
     return;
   }
-  const root = isAbsolute(saveTo) ? homeRoot() : process.cwd();
+  const root = isAbsolute(inputPath) ? homeRoot() : process.cwd();
   if (!isWithinRoot(root, resolvedPath)) {
     throw new Error(
-      `saveTo "${saveTo}" resolves outside the allowed location (${resolvedPath}). Relative ` +
+      `${label} "${inputPath}" resolves outside the allowed location (${resolvedPath}). Relative ` +
         `paths must stay within the current working directory and absolute paths within ` +
         `${homeRoot()}. Start the server with --unrestricted-save-paths to write to arbitrary ` +
         `locations.`
