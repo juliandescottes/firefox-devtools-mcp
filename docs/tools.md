@@ -441,7 +441,7 @@ Parameters:
 - `env` (array of string, optional) - New environment variables in KEY=VALUE format (optional, e.g., ["MOZ_LOG=HTMLMediaElement:5", "MOZ_LOG_FILE=/tmp/ff.log"])
 - `headless` (boolean, optional) - Run in headless mode (optional, keeps current if not specified)
 - `startUrl` (string, optional) - URL to navigate to after restart (optional, uses about:blank if not specified)
-- `prefs` (object, optional) - Firefox preferences to set at startup. Values are auto-typed: true/false become booleans, integers become numbers, everything else is a string. Requires MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1.
+- `prefs` (object, optional) - Firefox preferences to set at startup. Values are auto-typed: true/false become booleans, integers become numbers, everything else is a string.
 
 ## webextension
 

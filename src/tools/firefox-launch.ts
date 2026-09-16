@@ -54,7 +54,7 @@ export const restartFirefoxTool = {
       prefs: {
         type: 'object',
         description:
-          'Firefox preferences to set at startup. Values are auto-typed: true/false become booleans, integers become numbers, everything else is a string. Requires MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1.',
+          'Firefox preferences to set at startup. Values are auto-typed: true/false become booleans, integers become numbers, everything else is a string.',
         additionalProperties: {
           oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }],
         },

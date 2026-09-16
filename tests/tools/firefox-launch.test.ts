@@ -41,6 +41,8 @@ describe('Firefox Launch Tools', () => {
       };
       expect(properties.prefs).toBeDefined();
       expect(properties.prefs.type).toBe('object');
+      // Startup prefs go through moz:firefoxOptions: no privileged access needed.
+      expect(properties.prefs.description).not.toContain('MOZ_REMOTE_ALLOW_SYSTEM_ACCESS');
     });
   });
 
