@@ -27,7 +27,11 @@ export interface Toolset {
   instructions: string;
 }
 
-const privilegedModuleNames = new Set(MODULES.filter((m) => m.privileged).map((m) => m.name));
+// Modules the public build cannot expose: privileged ones (which also need
+// MOZ_REMOTE_ALLOW_SYSTEM_ACCESS at runtime) and moz-only ones.
+const mozBuildModuleNames = new Set(
+  MODULES.filter((m) => m.privileged || m.mozOnly).map((m) => m.name)
+);
 
 /**
  * Resolve the enabled modules from CLI configuration and build their tools.
@@ -115,13 +119,13 @@ function selectModules(options: ToolsetOptions): { moduleNames: string[]; warnin
   let moduleNames = [...selected];
 
   if (!allowPrivileged) {
-    const dropped = moduleNames.filter((name) => privilegedModuleNames.has(name));
+    const dropped = moduleNames.filter((name) => mozBuildModuleNames.has(name));
     if (dropped.length > 0) {
       warnings.push(
-        `Privileged tool modules are not available in this build and were skipped: ${dropped.join(', ')}`
+        `Tool modules are not available in this build and were skipped: ${dropped.join(', ')}`
       );
     }
-    moduleNames = moduleNames.filter((name) => !privilegedModuleNames.has(name));
+    moduleNames = moduleNames.filter((name) => !mozBuildModuleNames.has(name));
   }
 
   // Return in canonical module order for stable output.

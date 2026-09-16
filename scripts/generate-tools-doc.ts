@@ -72,7 +72,11 @@ function renderTable(header: string[], rows: string[][]): string[] {
 
 function renderPresetTable(): string[] {
   const rows = MODULES.map((module) => [
-    module.privileged ? `\`${module.name}\` (privileged)` : `\`${module.name}\``,
+    module.privileged
+      ? `\`${module.name}\` (privileged)`
+      : module.mozOnly
+        ? `\`${module.name}\` (moz build)`
+        : `\`${module.name}\``,
     String(module.tools.length),
     ...PRESET_NAMES.map((preset) => (PRESETS[preset]?.includes(module.name) ? 'yes' : '-')),
   ]);
@@ -91,7 +95,8 @@ export function renderToolsDoc(): string {
     '[Tool modules and presets](../README.md#tool-modules-and-presets) in the README.',
     '',
     `Presets are cumulative and \`${DEFAULT_PRESET}\` is the default. Privileged modules require the`,
-    'Mozilla-internal build and `MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1`; the public package drops them.',
+    'Mozilla-internal build and `MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1`, moz build modules require only',
+    'the Mozilla-internal build; the public package drops both.',
     '',
     '## Modules and presets',
     '',
@@ -107,6 +112,8 @@ export function renderToolsDoc(): string {
     lines.push(`## ${module.name}`, '', inline(module.description), '');
     if (module.privileged) {
       lines.push('Privileged module: requires the Mozilla-internal build.', '');
+    } else if (module.mozOnly) {
+      lines.push('Requires the Mozilla-internal build.', '');
     }
     for (const { definition } of module.tools) {
       lines.push(...renderTool(definition));

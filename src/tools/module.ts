@@ -46,13 +46,14 @@ export interface ToolEntry {
 /**
  * A group of related tools that can be enabled or disabled as a unit.
  * `privileged` modules require the moz build and MOZ_REMOTE_ALLOW_SYSTEM_ACCESS
- * at runtime; they are dropped entirely when the server is not allowed to expose
- * privileged tools (see buildToolset).
+ * at runtime; `mozOnly` modules only require the moz build. Both are dropped
+ * entirely when the server is not allowed to expose them (see buildToolset).
  */
 export interface ToolModule {
   name: string;
   description: string;
   privileged?: boolean;
+  mozOnly?: boolean;
   tools: ToolEntry[];
 }
 
@@ -60,6 +61,7 @@ export interface ModuleConfig {
   name: string;
   description: string;
   privileged?: boolean;
+  mozOnly?: boolean;
   /** Each entry pairs a tool definition with its handler. */
   tools: Array<[ToolDefinition, ToolHandler]>;
 }
@@ -81,6 +83,7 @@ export function defineModule(config: ModuleConfig): ToolModule {
     name: config.name,
     description: config.description,
     ...(config.privileged ? { privileged: true } : {}),
+    ...(config.mozOnly ? { mozOnly: true } : {}),
     tools: config.tools.map(([definition, handler]) => ({ definition, handler })),
   };
 }
