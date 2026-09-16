@@ -20,6 +20,7 @@ import type { FirefoxLaunchOptions } from './types.js';
 import { log, logDebug } from '../utils/logger.js';
 import { findFirefoxBinaryWindows } from './windows-binary.js';
 import { resolveProfilePath } from './profile.js';
+import { instancesDir, logsDir } from '../utils/paths.js';
 
 // ---------------------------------------------------------------------------
 // Geckodriver binary finder
@@ -73,18 +74,18 @@ async function findGeckodriverInNpmPackage(): Promise<string | null> {
 }
 
 function lookupMarionettePort(): number | void {
-  const instancesDir = join(homedir(), '.firefox-devtools-mcp', 'instances');
-  if (!existsSync(instancesDir)) {
-    logDebug(`Failed to lookup Marionette port: ${instancesDir} doesn't exist.`);
+  const dir = instancesDir();
+  if (!existsSync(dir)) {
+    logDebug(`Failed to lookup Marionette port: ${dir} doesn't exist.`);
     return;
   }
-  const files = readdirSync(instancesDir);
+  const files = readdirSync(dir);
   const portFiles = files.filter((f) => /^\d+\.port$/.test(f));
   const mostRecent = portFiles
     .map((f) => ({
       name: f,
-      path: join(instancesDir, f),
-      mtime: statSync(join(instancesDir, f)).mtimeMs,
+      path: join(dir, f),
+      mtime: statSync(join(dir, f)).mtimeMs,
     }))
     .sort((a, b) => b.mtime - a.mtime)[0];
   if (mostRecent) {
@@ -101,7 +102,7 @@ function lookupMarionettePort(): number | void {
       logDebug(`Failed to lookup Marionette port: "${content}" is not a number.`);
     }
   } else {
-    logDebug(`Failed to lookup Marionette port: No port file found in ${instancesDir}.`);
+    logDebug(`Failed to lookup Marionette port: No port file found in ${dir}.`);
   }
 }
 
@@ -284,10 +285,10 @@ export class FirefoxCore {
       if (this.options.logFile) {
         this.logFilePath = this.options.logFile;
       } else if (this.options.env && Object.keys(this.options.env).length > 0) {
-        const outputDir = join(homedir(), '.firefox-devtools-mcp', 'output');
-        mkdirSync(outputDir, { recursive: true });
+        const dir = logsDir();
+        mkdirSync(dir, { recursive: true });
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        this.logFilePath = join(outputDir, `firefox-${timestamp}.log`);
+        this.logFilePath = join(dir, `firefox-${timestamp}.log`);
       }
 
       // Set environment variables (will be inherited by geckodriver -> Firefox)

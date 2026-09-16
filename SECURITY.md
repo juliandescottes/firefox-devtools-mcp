@@ -47,7 +47,7 @@ The following flags expand the agent's capabilities and increase the attack surf
 
 ### `--unrestricted-save-paths`
 
-Tools that save output to disk (`take_snapshot`, `screenshot_page`, `list_network_requests`, `evaluate_script` and others via their `saveTo` parameter) are restricted by default: relative paths resolve against the current working directory, and absolute paths must stay within `~/.firefox-devtools-mcp`. This flag removes both restrictions, letting the agent write to any path the server process can reach.
+Tools that save output to disk (`take_snapshot`, `screenshot_page`, `list_network_requests`, `evaluate_script` and others via their `saveTo` parameter) are restricted by default: relative paths resolve against the current working directory, and absolute paths must stay within `~/.firefox-devtools-mcp/output`. This flag removes both restrictions, letting the agent write to any path the server process can reach.
 
 Combined with prompt injection, this turns a page's content into arbitrary file writes with your user's privileges — for example overwriting a shell profile or a configuration file the agent is not otherwise meant to touch.
 

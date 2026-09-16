@@ -7,7 +7,8 @@ import { mkdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
 import { successResponse, errorResponse, jsonResponse } from '../utils/response-helpers.js';
-import { assertAllowedPath, homeRoot } from '../utils/save-output.js';
+import { outputDir } from '../utils/paths.js';
+import { assertAllowedPath } from '../utils/save-output.js';
 import { defineModule, defineToolHandler, type ToolDefinition } from './module.js';
 import type { McpToolResponse } from '../types/common.js';
 
@@ -68,7 +69,7 @@ export const setDownloadBehaviorTool = {
       downloadFolder: {
         type: 'string',
         description:
-          "Path to the folder where downloads should be stored, created if missing. Only used for behavior='allowed', where it defaults to ~/.firefox-devtools-mcp/downloads. Relative paths resolve against the current working directory.",
+          "Path to the folder where downloads should be stored, created if missing. Only used for behavior='allowed', where it defaults to ~/.firefox-devtools-mcp/output/downloads. Relative paths resolve against the current working directory.",
       },
     },
     required: ['behavior'],
@@ -149,7 +150,7 @@ export const handleSetDownloadBehavior = defineToolHandler(async function handle
   if (behavior === 'allowed') {
     // Firefox resolves relative paths against its own process cwd, which is unrelated to the
     // server's when attaching to an already running browser, so only ever send an absolute path.
-    let folder = join(homeRoot(), 'downloads');
+    let folder = join(outputDir(), 'downloads');
     if (downloadFolder) {
       folder = resolve(downloadFolder);
       await assertAllowedPath(downloadFolder, folder, 'downloadFolder');

@@ -2,9 +2,6 @@
  * CLI argument parsing for Firefox DevTools MCP server
  */
 
-import { createHash } from 'node:crypto';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
 import type { Options as YargsOptions } from 'yargs';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
@@ -14,20 +11,6 @@ import { MODULE_NAMES, PRESET_NAMES } from './tools/index.js';
  * Parsed preference value (boolean, integer, or string)
  */
 export type PrefValue = string | number | boolean;
-
-/**
- * Returns the default profile parent directory for --auto-profile mode.
- * When a Firefox binary path is given, a short hash of that path is appended
- * so that different builds (Release, Nightly, …) each get their own profile.
- */
-export function defaultProfileDir(firefoxPath?: string): string {
-  const base = join(homedir(), '.firefox-devtools-mcp');
-  if (!firefoxPath) {
-    return join(base, 'profile');
-  }
-  const hash = createHash('sha1').update(firefoxPath).digest('hex').slice(0, 8);
-  return join(base, `profile-${hash}`);
-}
 
 /**
  * Parse preference strings into typed values

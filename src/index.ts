@@ -12,7 +12,8 @@ import {
 
 import { SERVER_NAME, SERVER_VERSION } from './config/constants.js';
 import { log, logError, logDebug, setupLogFile, flushLogs } from './utils/logger.js';
-import { parsePrefs, defaultProfileDir } from './cli.js';
+import { parsePrefs } from './cli.js';
+import { defaultProfileDir } from './utils/paths.js';
 import type { parseArguments } from './cli.js';
 import { FirefoxDevTools } from './firefox/index.js';
 import type { FirefoxLaunchOptions } from './firefox/types.js';
