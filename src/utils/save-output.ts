@@ -2,10 +2,11 @@
  * Helper for saving bulky tool output to disk instead of returning it inline.
  */
 
-import { mkdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
-import { outputDir } from './paths.js';
+import { homeRoot, outputDir } from './paths.js';
+import { isFirefoxProfile, MCP_PROFILE_DIR_NAME } from '../firefox/profile.js';
 
 export interface SavedOutput {
   path: string;
@@ -40,10 +41,33 @@ export function isWithinRoot(root: string, candidate: string): boolean {
 }
 
 /**
- * Reject paths that escape the allowed roots, unless the server was
- * started with --unrestricted-save-paths. Relative paths must stay within the
- * current working directory; absolute paths must stay within the output
- * directory.
+ * Absolute path with symlinks resolved as far as the path exists, keeping the
+ * segments that do not exist yet. A plain realpath() would throw on the file we
+ * are about to create, and a purely lexical compare would let a symlinked
+ * directory point out of an allowed root.
+ */
+async function realpathThroughMissing(target: string): Promise<string> {
+  let current = resolve(target);
+  const missing: string[] = [];
+
+  for (;;) {
+    try {
+      return join(await realpath(current), ...missing);
+    } catch {
+      const parent = dirname(current);
+      if (parent === current) {
+        return join(current, ...missing);
+      }
+      missing.unshift(current.slice(parent.length + 1));
+      current = parent;
+    }
+  }
+}
+
+/**
+ * Reject saveTo paths that escape the allowed roots, or that reach data Firefox
+ * and this server read back: the profiles, the instance port files and the
+ * captured Firefox output. Skipped entirely with --unrestricted-save-paths.
  * @param label the name of the tool argument the path came from, used in the error message
  */
 export async function assertAllowedPath(
@@ -55,14 +79,44 @@ export async function assertAllowedPath(
   if (args?.unrestrictedSavePaths) {
     return;
   }
-  const root = isAbsolute(inputPath) ? outputDir() : process.cwd();
-  if (!isWithinRoot(root, resolvedPath)) {
-    throw new Error(
-      `${label} "${inputPath}" resolves outside the allowed location (${resolvedPath}). Relative ` +
-        `paths must stay within the current working directory and absolute paths within ` +
-        `${outputDir()}. Start the server with --unrestricted-save-paths to write to arbitrary ` +
+
+  const refusal = (reason: string) =>
+    new Error(
+      `${label} "${inputPath}" ${reason} (${resolvedPath}). Relative paths must stay within ` +
+        `the current working directory and absolute paths within ${outputDir()}, and neither ` +
+        `may reach the profiles, instance port files or captured output this server reads ` +
+        `back. Start the server with --unrestricted-save-paths to write to arbitrary ` +
         `locations.`
     );
+
+  const candidate = await realpathThroughMissing(resolvedPath);
+  const output = await realpathThroughMissing(outputDir());
+  const root = isAbsolute(inputPath) ? output : await realpathThroughMissing(process.cwd());
+  if (!isWithinRoot(root, candidate)) {
+    throw refusal('resolves outside the allowed location');
+  }
+
+  // The whole data directory, save for the output subtree inside it.
+  const home = await realpathThroughMissing(homeRoot());
+  if (isWithinRoot(home, candidate) && !isWithinRoot(output, candidate)) {
+    throw refusal(`resolves inside ${homeRoot()}, which this server reads back`);
+  }
+
+  // Locations the operator pointed elsewhere; by path, as they may not exist yet.
+  const profile = args?.profilePath && join(resolve(args.profilePath), MCP_PROFILE_DIR_NAME);
+  if (profile && isWithinRoot(await realpathThroughMissing(profile), candidate)) {
+    throw refusal(`resolves inside ${profile}, which this server reads back`);
+  }
+
+  const outputFile = args?.outputFile && resolve(args.outputFile);
+  if (outputFile && isWithinRoot(await realpathThroughMissing(outputFile), candidate)) {
+    throw refusal(`resolves inside ${outputFile}, which this server reads back`);
+  }
+
+  // Any profile Firefox has used, including ones this server knows nothing about.
+  const parent = dirname(candidate);
+  if (isFirefoxProfile(parent)) {
+    throw refusal(`resolves inside the Firefox profile ${parent}`);
   }
 }
 
