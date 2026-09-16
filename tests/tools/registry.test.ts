@@ -62,6 +62,13 @@ describe('Tool registry', () => {
         .sort();
       expect(privileged).toEqual(['prefs', 'privileged']);
     });
+
+    it('marks launch as a moz-only module', () => {
+      const mozOnly = MODULES.filter((m) => m.mozOnly)
+        .map((m) => m.name)
+        .sort();
+      expect(mozOnly).toEqual(['launch']);
+    });
   });
 
   describe('presets', () => {
@@ -176,6 +183,23 @@ describe('Tool registry', () => {
       });
       expect(moduleNames).toEqual(['pages']);
       expect(warnings.some((w) => w.toLowerCase().includes('privileged'))).toBe(true);
+    });
+
+    it('drops moz-only modules when not allowed, with a warning', () => {
+      const { moduleNames, warnings } = buildToolset({
+        tools: ['pages', 'launch'],
+        allowPrivileged: false,
+      });
+      expect(moduleNames).toEqual(['pages']);
+      expect(warnings.some((w) => w.includes('launch'))).toBe(true);
+    });
+
+    it('does not expose restart_firefox in the default preset', () => {
+      const { toolDefinitions } = buildToolset({});
+      const names = toolDefinitions.map((d) => d.name);
+      expect(names).not.toContain('restart_firefox');
+      // close_firefox_session covers ending the session without reconfiguring.
+      expect(names).toContain('close_firefox_session');
     });
 
     it('drops privileged modules silently from a preset when not allowed', () => {

@@ -21,6 +21,7 @@ import { module as screenshot } from './screenshot.js';
 import { module as downloads } from './downloads.js';
 import { module as utilities } from './utilities.js';
 import { module as management } from './firefox-management.js';
+import { module as launch } from './firefox-launch.js';
 import { module as webextension } from './webextension.js';
 import { module as profiler } from './profiler.js';
 import { module as screencast } from './screencast.js';
@@ -42,6 +43,7 @@ export const MODULES: ToolModule[] = [
   downloads,
   utilities,
   management,
+  launch,
   webextension,
   profiler,
   screencast,
@@ -71,7 +73,7 @@ const BASIC = [
 const DEVELOPER = [...BASIC, 'debugging', 'network', 'console', 'profiler'];
 // MOZILLA: (all tools) Also includes privileged tools only useful for firefox
 // developers.
-const MOZILLA = [...DEVELOPER, 'prefs', 'privileged'];
+const MOZILLA = [...DEVELOPER, 'launch', 'prefs', 'privileged'];
 
 export const PRESETS: Record<string, string[]> = {
   slim: SLIM,

@@ -2,12 +2,13 @@
 
 # Tool reference
 
-The server exposes 55 tools grouped into 16 modules. Which modules are
+The server exposes 55 tools grouped into 17 modules. Which modules are
 enabled depends on `--tool-preset` or `--tools`; see
 [Tool modules and presets](../README.md#tool-modules-and-presets) in the README.
 
 Presets are cumulative and `basic` is the default. Privileged modules require the
-Mozilla-internal build and `MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1`; the public package drops them.
+Mozilla-internal build and `MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1`, moz build modules require only
+the Mozilla-internal build; the public package drops both.
 
 ## Modules and presets
 
@@ -21,7 +22,8 @@ Mozilla-internal build and `MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1`; the public packag
 | `screenshot`              | 2     | yes  | yes   | yes       | yes     | yes |
 | `downloads`               | 3     | -    | yes   | yes       | yes     | yes |
 | `utilities`               | 4     | -    | yes   | yes       | yes     | yes |
-| `management`              | 4     | -    | yes   | yes       | yes     | yes |
+| `management`              | 3     | -    | yes   | yes       | yes     | yes |
+| `launch` (moz build)      | 1     | -    | -     | -         | yes     | yes |
 | `webextension`            | 2     | -    | yes   | yes       | yes     | yes |
 | `profiler`                | 3     | -    | -     | yes       | yes     | yes |
 | `screencast`              | 2     | -    | yes   | yes       | yes     | yes |
@@ -41,6 +43,7 @@ Mozilla-internal build and `MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1`; the public packag
 - [downloads](#downloads)
 - [utilities](#utilities)
 - [management](#management)
+- [launch](#launch)
 - [webextension](#webextension)
 - [profiler](#profiler)
 - [screencast](#screencast)
@@ -393,7 +396,7 @@ Parameters:
 
 ## management
 
-Inspect Firefox options and logs, restart and close the browser.
+Inspect Firefox options and logs, and close the browser.
 
 ### `get_firefox_output`
 
@@ -415,6 +418,18 @@ Get information about the current Firefox instance configuration, including bina
 
 No parameters.
 
+### `close_firefox_session`
+
+Ends the browser session. If the server connected to your existing Firefox, this releases the connection and leaves Firefox running. If the server started Firefox itself, this closes it. Call this when the browser task is complete and no further browser interaction is expected.
+
+No parameters.
+
+## launch
+
+Restart Firefox under a different launch configuration.
+
+Requires the Mozilla-internal build.
+
 ### `restart_firefox`
 
 Restart Firefox with different configuration. Allows changing binary path, environment variables, and other options. All current tabs will be closed.
@@ -427,12 +442,6 @@ Parameters:
 - `headless` (boolean, optional) - Run in headless mode (optional, keeps current if not specified)
 - `startUrl` (string, optional) - URL to navigate to after restart (optional, uses about:blank if not specified)
 - `prefs` (object, optional) - Firefox preferences to set at startup. Values are auto-typed: true/false become booleans, integers become numbers, everything else is a string. Requires MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1.
-
-### `close_firefox_session`
-
-Ends the browser session. If the server connected to your existing Firefox, this releases the connection and leaves Firefox running. If the server started Firefox itself, this closes it. Call this when the browser task is complete and no further browser interaction is expected.
-
-No parameters.
 
 ## webextension
 

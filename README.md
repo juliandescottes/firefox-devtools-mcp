@@ -150,15 +150,15 @@ Tools are grouped into modules. You choose which modules to expose either with a
 the preset is ignored.
 
 Modules: `pages`, `snapshot`, `input`, `network`, `console`, `screenshot`, `downloads`,
-`utilities`, `management`, `webextension`, `profiler`, `screencast`, `script`, `debugging`,
-`prefs`, `privileged`.
+`utilities`, `management`, `launch`, `webextension`, `profiler`, `screencast`, `script`,
+`debugging`, `prefs`, `privileged`.
 
 Presets (each is a superset of the previous):
 
 - `slim` — `pages`, `snapshot`, `input`, `screenshot`
 - `basic` (default) — `slim` plus `downloads`, `script`, `utilities`, `management`, `webextension`, `screencast`
 - `developer` — `basic` plus `debugging`, `network`, `console`, `profiler`
-- `mozilla` — `developer` plus `prefs`, `privileged`
+- `mozilla` — `developer` plus `launch`, `prefs`, `privileged`
 - `all` — every module
 
 Note that `basic`, the default, includes `script` and therefore the `evaluate_script` tool.
@@ -174,8 +174,11 @@ npx @mozilla/firefox-devtools-mcp --tools pages network console
 ```
 
 The `prefs` and `privileged` modules require `MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1` and are only
-available in the Mozilla-internal build. The public package skips them even if requested and
-logs a warning naming the modules it dropped.
+available in the Mozilla-internal build. The `launch` module requires the Mozilla-internal
+build too: it restarts Firefox under a caller-chosen binary, profile, environment and set of
+preferences, which is a configuration change the operator should own. Use `--pref`,
+`--firefox-path` and the other command-line options instead. The public package skips these
+modules even if requested and logs a warning naming the modules it dropped.
 
 ### Useful preferences (`--pref`)
 
@@ -247,7 +250,8 @@ descriptions and parameters (generated from the source).
 - Script: evaluate_script (optional `sandbox` for an isolated realm; optional `saveTo` for bulky results)
 - Privileged Context: list/select privileged ("chrome") contexts, evaluate_privileged_script (requires `MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1`)
 - WebExtension: install_extension, uninstall_extension, list_extensions (list requires `MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1`)
-- Firefox Management: get_firefox_info, get_firefox_output, restart_firefox
+- Firefox Management: get_firefox_info, get_firefox_output, close_firefox_session
+- Firefox Launch: restart_firefox (requires the Mozilla-internal build)
 - Firefox Preferences: get_firefox_prefs, set_firefox_prefs (requires `MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1`)
 - Profiler: profiler_is_active, profiler_start (preset or explicit config), profiler_stop (saves profile to downloads directory)
 - Screencast: screencast_start (records the page viewport to a video file in the downloads directory), screencast_stop (requires Firefox 154+)

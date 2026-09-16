@@ -51,7 +51,7 @@ Runtime (requires `MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1`):
 await set_firefox_prefs({ prefs: { "browser.ml.enable": true } });
 ```
 
-Preferences set via CLI or `restart_firefox` are re-applied automatically on subsequent restarts.
+Preferences set via CLI are re-applied automatically on subsequent restarts. `restart_firefox` can also set them, but that tool lives in the `launch` module and is only available in the Mozilla-internal build.
 
 ## Build Configuration
 

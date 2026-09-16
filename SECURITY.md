@@ -23,7 +23,7 @@ Tools are grouped into modules, selected with `--tool-preset` (a named group) or
 | `slim` | `pages`, `snapshot`, `input`, `screenshot` | Read and interact with pages |
 | `basic` (default) | `downloads`, `script`, `utilities`, `management`, `webextension`, `screencast` | **`evaluate_script`**, extension install, downloads |
 | `developer` | `debugging`, `network`, `console`, `profiler` | Request and response bodies, breakpoints |
-| `mozilla` | `prefs`, `privileged` | Privileged (chrome) context, Firefox preferences |
+| `mozilla` | `launch`, `prefs`, `privileged` | Privileged (chrome) context, Firefox preferences, browser relaunch |
 
 > **Note:** `evaluate_script` is part of the default `basic` preset. It is included because agents commonly fall back to it when the higher-level tools cannot handle a page, but it also means the default configuration lets the agent run arbitrary JavaScript in any page context (see below). Use `--tool-preset slim`, or an explicit `--tools` list without `script`, when you do not want that.
 
@@ -38,6 +38,10 @@ Tools that operate in Firefox's privileged (chrome) context: listing and selecti
 Unless you are developing or modifying Firefox itself, you likely do not need these modules. To set preferences at startup, you can always use the `--pref name=value` command-line argument instead. If you are missing commands or features to debug web content, please file a bug on [Bugzilla](https://bugzilla.mozilla.org/enter_bug.cgi?format=__default__&blocked=2026717&product=Developer%20Infrastructure&component=Firefox%20MCP) or reach out in the [#firefox-devtools-mcp Matrix room](https://chat.mozilla.org/#/room/#firefox-devtools-mcp:mozilla.org).
 
 > **Warning:** When the privileged modules are used together with `MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1`, the agent gains access to privileged Firefox APIs with no web-content sandbox boundary. Depending on what the agent does with that access, this can extend to operating-system–level actions. Only use this combination in fully isolated environments.
+
+### Browser relaunch (module `launch`)
+
+`restart_firefox` relaunches Firefox under a binary, profile, environment and set of preferences chosen by the caller. Preferences reach the new instance through `moz:firefoxOptions`, so they need no privileged access, and a persistent profile (`--profile-path`, `--auto-profile`) keeps them across restarts. That makes browser configuration an agent-reachable capability rather than an operator decision, so the module is restricted to the Mozilla-internal build. Set the configuration you need on the command line (`--pref`, `--firefox-path`, `--profile-path`) instead; `close_firefox_session`, available everywhere, ends the session without changing how the browser starts.
 
 The deprecated `--enable-script` and `--enable-privileged-context` flags select the `developer` and `mozilla` presets respectively. They still work, but `--tool-preset` and `--tools` describe what is actually enabled.
 
