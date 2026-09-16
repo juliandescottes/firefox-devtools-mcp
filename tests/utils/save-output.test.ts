@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os';
 
 const MOCK_HOME = join(tmpdir(), 'save-output-test-home');
 const HOME_ROOT = join(MOCK_HOME, '.firefox-devtools-mcp');
+const OUTPUT_ROOT = join(HOME_ROOT, 'output');
 
 vi.mock('node:os', async (importOriginal) => {
   const os = await importOriginal<typeof import('node:os')>();
@@ -103,16 +104,42 @@ describe('saveOutput', () => {
       );
     });
 
-    it('should allow an absolute path within ~/.firefox-devtools-mcp', async () => {
-      const filePath = join(HOME_ROOT, 'sub', 'result.json');
+    it('should allow an absolute path within the output directory', async () => {
+      const filePath = join(OUTPUT_ROOT, 'sub', 'result.json');
       const saved = await saveOutput('data', filePath, 'evaluate-script');
 
       expect(saved.path).toBe(filePath);
       expect(existsSync(filePath)).toBe(true);
     });
 
-    it('should reject an absolute path outside ~/.firefox-devtools-mcp', async () => {
+    it('should reject an absolute path outside the output directory', async () => {
       const filePath = join(tempDir, 'result.json');
+      await expect(saveOutput('data', filePath, 'evaluate-script')).rejects.toThrow(
+        '--unrestricted-save-paths'
+      );
+      expect(existsSync(filePath)).toBe(false);
+    });
+
+    it('should reject the directories the server reads back', async () => {
+      // A profile user.js applies at the next startup and survives the server,
+      // the port files decide which Firefox we attach to, and the captured
+      // output is returned by get_firefox_output.
+      const targets = [
+        join(HOME_ROOT, 'profile', 'firefox_devtools_mcp_profile', 'user.js'),
+        join(HOME_ROOT, 'instances', '1234.port'),
+        join(HOME_ROOT, 'logs', 'firefox-forged.log'),
+      ];
+
+      for (const filePath of targets) {
+        await expect(saveOutput('data', filePath, 'get-page-text', 'txt')).rejects.toThrow(
+          '--unrestricted-save-paths'
+        );
+        expect(existsSync(filePath)).toBe(false);
+      }
+    });
+
+    it('should reject an absolute path in the home root but outside output', async () => {
+      const filePath = join(HOME_ROOT, 'result.json');
       await expect(saveOutput('data', filePath, 'evaluate-script')).rejects.toThrow(
         '--unrestricted-save-paths'
       );
@@ -122,7 +149,7 @@ describe('saveOutput', () => {
     it('should generate a timestamped file in the default output dir when no path is given', async () => {
       const saved = await saveOutput('data', undefined, 'evaluate-script');
 
-      expect(saved.path.startsWith(join(HOME_ROOT, 'output') + sep)).toBe(true);
+      expect(saved.path.startsWith(OUTPUT_ROOT + sep)).toBe(true);
       expect(saved.path).toContain('evaluate-script-');
       expect(saved.path.endsWith('.json')).toBe(true);
       expect(readFileSync(saved.path, 'utf8')).toBe('data');

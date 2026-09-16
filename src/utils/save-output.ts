@@ -4,16 +4,12 @@
 
 import { mkdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
-import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
+import { outputDir } from './paths.js';
 
 export interface SavedOutput {
   path: string;
   bytes: number;
-}
-
-export function homeRoot(): string {
-  return join(homedir(), '.firefox-devtools-mcp');
 }
 
 function generatedName(baseName: string, extension: string): string {
@@ -46,8 +42,8 @@ export function isWithinRoot(root: string, candidate: string): boolean {
 /**
  * Reject paths that escape the allowed roots, unless the server was
  * started with --unrestricted-save-paths. Relative paths must stay within the
- * current working directory; absolute paths must stay within
- * ~/.firefox-devtools-mcp.
+ * current working directory; absolute paths must stay within the output
+ * directory.
  * @param label the name of the tool argument the path came from, used in the error message
  */
 export async function assertAllowedPath(
@@ -59,12 +55,12 @@ export async function assertAllowedPath(
   if (args?.unrestrictedSavePaths) {
     return;
   }
-  const root = isAbsolute(inputPath) ? homeRoot() : process.cwd();
+  const root = isAbsolute(inputPath) ? outputDir() : process.cwd();
   if (!isWithinRoot(root, resolvedPath)) {
     throw new Error(
       `${label} "${inputPath}" resolves outside the allowed location (${resolvedPath}). Relative ` +
         `paths must stay within the current working directory and absolute paths within ` +
-        `${homeRoot()}. Start the server with --unrestricted-save-paths to write to arbitrary ` +
+        `${outputDir()}. Start the server with --unrestricted-save-paths to write to arbitrary ` +
         `locations.`
     );
   }
@@ -72,11 +68,11 @@ export async function assertAllowedPath(
 
 /**
  * Write content to saveTo: a file path (relative to the current working
- * directory, or absolute within ~/.firefox-devtools-mcp; parent directories are
- * created as needed), or an existing directory (a generated file named after
- * baseName is placed inside). When saveTo is empty, the generated file goes to
- * ~/.firefox-devtools-mcp/output/. Paths escaping the allowed roots are rejected
- * unless the server runs with --unrestricted-save-paths.
+ * directory, or absolute within ~/.firefox-devtools-mcp/output; parent
+ * directories are created as needed), or an existing directory (a generated file
+ * named after baseName is placed inside). When saveTo is empty, the generated
+ * file goes to ~/.firefox-devtools-mcp/output/. Paths escaping the allowed roots
+ * are rejected unless the server runs with --unrestricted-save-paths.
  */
 export async function saveOutput(
   content: string | Buffer,
@@ -92,7 +88,7 @@ export async function saveOutput(
     }
     await assertAllowedPath(saveTo, resolvedPath);
   } else {
-    resolvedPath = join(homeRoot(), 'output', generatedName(baseName, extension));
+    resolvedPath = join(outputDir(), generatedName(baseName, extension));
   }
   await mkdir(dirname(resolvedPath), { recursive: true });
 

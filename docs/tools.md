@@ -354,7 +354,7 @@ Control how downloads are handled: allow (save to a destination folder), deny (c
 Parameters:
 
 - `behavior` (`allowed` | `denied` | `default`, required) - 'allowed' saves downloads to `downloadFolder`, 'denied' cancels them, 'default' resets to the browser default
-- `downloadFolder` (string, optional) - Path to the folder where downloads should be stored, created if missing. Only used for behavior='allowed', where it defaults to ~/.firefox-devtools-mcp/downloads. Relative paths resolve against the current working directory.
+- `downloadFolder` (string, optional) - Path to the folder where downloads should be stored, created if missing. Only used for behavior='allowed', where it defaults to ~/.firefox-devtools-mcp/output/downloads. Relative paths resolve against the current working directory.
 
 ## utilities
 
