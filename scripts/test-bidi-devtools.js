@@ -89,7 +89,13 @@ drop.addEventListener('dragover', (e)=>e.preventDefault());
 </script>
 </body>`
       );
-      await firefox.dragAndDropBySelectors('#drag', '#drop');
+      const dndSnapshot = await firefox.takeSnapshot();
+      const dragNode = dndSnapshot.json.root.children?.find((n) => n.id === 'drag');
+      const dropNode = dndSnapshot.json.root.children?.find((n) => n.id === 'drop');
+      if (!dragNode?.uid || !dropNode?.uid) {
+        throw new Error('drag & drop: elements not found in snapshot');
+      }
+      await firefox.dragByUidToUid(dragNode.uid, dropNode.uid);
       const ok = await firefox.evaluate("return !!document.querySelector('#ok')");
       console.log(ok ? '✅ Drag & drop worked\n' : '❌ Drag & drop failed\n');
     } catch (e) {
@@ -108,13 +114,19 @@ drop.addEventListener('dragover', (e)=>e.preventDefault());
 
       await loadHTML(
         firefox,
-        `<head><title>Upload Test</title><style>#file{display:none}</style></head><body>
+        `<head><title>Upload Test</title></head><body>
 <label for=file>Pick file</label>
 <input id=file type=file>
 <script>document.getElementById('file').addEventListener('change',()=>{document.body.setAttribute('data-ok','1')});</script>
 </body>`
       );
-      await firefox.uploadFileBySelector('#file', filePath);
+      // The input has to remain visible: snapshots skip elements hidden via CSS.
+      const uploadSnapshot = await firefox.takeSnapshot();
+      const fileNode = uploadSnapshot.json.root.children?.find((n) => n.id === 'file');
+      if (!fileNode?.uid) {
+        throw new Error('file upload: input not found in snapshot');
+      }
+      await firefox.uploadFileByUid(fileNode.uid, filePath);
       const ok = await firefox.evaluate("return document.body.getAttribute('data-ok') === '1'");
       console.log(ok ? '✅ File upload worked\n' : '❌ File upload failed\n');
     } catch (e) {

@@ -139,41 +139,6 @@ export class FirefoxClient {
     );
   }
 
-  async clickBySelector(selector: string): Promise<void> {
-    if (!this.dom) {
-      throw new Error('Not connected');
-    }
-    return await this.dom.clickBySelector(selector);
-  }
-
-  async hoverBySelector(selector: string): Promise<void> {
-    if (!this.dom) {
-      throw new Error('Not connected');
-    }
-    return await this.dom.hoverBySelector(selector);
-  }
-
-  async fillBySelector(selector: string, text: string): Promise<void> {
-    if (!this.dom) {
-      throw new Error('Not connected');
-    }
-    return await this.dom.fillBySelector(selector, text);
-  }
-
-  async dragAndDropBySelectors(sourceSelector: string, targetSelector: string): Promise<void> {
-    if (!this.dom) {
-      throw new Error('Not connected');
-    }
-    return await this.dom.dragAndDropBySelectors(sourceSelector, targetSelector);
-  }
-
-  async uploadFileBySelector(selector: string, filePath: string): Promise<void> {
-    if (!this.dom) {
-      throw new Error('Not connected');
-    }
-    return await this.dom.uploadFileBySelector(selector, filePath);
-  }
-
   // UID-based input methods
 
   async clickByUid(uid: string, dblClick = false): Promise<void> {

@@ -2,7 +2,7 @@
  * DOM interactions: evaluate, element lookup, input actions
  */
 
-import { By, Key, WebDriver, WebElement } from 'selenium-webdriver';
+import { Key, WebDriver, WebElement } from 'selenium-webdriver';
 import type { Driver as FirefoxDriver } from 'selenium-webdriver/firefox.js';
 import type { Actions } from 'selenium-webdriver/lib/input.js';
 
@@ -154,27 +154,6 @@ export class DomInteractions {
     private resolveUid?: (uid: string) => Promise<WebElement>
   ) {}
 
-  // ============================================================================
-  // Element polling helpers
-  // ============================================================================
-
-  /**
-   * Poll for an element matching a CSS selector until found or timeout.
-   */
-  private async waitForElement(selector: string, timeout = 5000): Promise<WebElement> {
-    const deadline = Date.now() + timeout;
-    let lastError: Error | undefined;
-    while (Date.now() < deadline) {
-      try {
-        return await this.driver.findElement(By.css(selector));
-      } catch (e) {
-        lastError = e instanceof Error ? e : new Error(String(e));
-      }
-      await new Promise((r) => setTimeout(r, 100));
-    }
-    throw lastError ?? new Error(`Element not found: ${selector}`);
-  }
-
   /**
    * Wait until an element reports isDisplayed(), ignoring failures.
    */
@@ -191,94 +170,6 @@ export class DomInteractions {
       await new Promise((r) => setTimeout(r, 100));
     }
     // Visibility wait is best-effort; don't throw
-  }
-
-  // ============================================================================
-  // Selector-based input methods
-  // ============================================================================
-
-  /**
-   * Click element by CSS selector
-   */
-  async clickBySelector(selector: string): Promise<void> {
-    const el = await this.waitForElement(selector, 5000);
-    await this.waitForVisible(el, 5000);
-    await el.click();
-  }
-
-  /**
-   * Hover over element by CSS selector
-   */
-  async hoverBySelector(selector: string): Promise<void> {
-    const el = await this.waitForElement(selector, 5000);
-    await this.driver.actions({ async: true }).move({ origin: el }).perform();
-  }
-
-  /**
-   * Fill input field by CSS selector
-   */
-  async fillBySelector(selector: string, text: string): Promise<void> {
-    const el = await this.waitForElement(selector, 5000);
-    try {
-      await el.clear();
-    } catch {
-      // Some inputs may not support clear(); fall back to select-all + delete
-      await el.sendKeys(Key.chord(Key.CONTROL, 'a'), Key.DELETE);
-    }
-    await el.sendKeys(text);
-  }
-
-  /**
-   * Drag & drop using JS events fallback (DataTransfer).
-   * Works on simple pages; not guaranteed for all custom DnD libs.
-   */
-  async dragAndDropBySelectors(sourceSelector: string, targetSelector: string): Promise<void> {
-    await this.driver.executeScript(
-      `
-      var srcSel = arguments[0], tgtSel = arguments[1];
-      var src = document.querySelector(srcSel);
-      var tgt = document.querySelector(tgtSel);
-      if (!src || !tgt) throw new Error('dragAndDrop: element not found');
-      function dispatch(type, target, dt) {
-        var evt = new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: dt });
-        return target.dispatchEvent(evt);
-      }
-      var dt = typeof DataTransfer !== 'undefined' ? new DataTransfer() : undefined;
-      dispatch('dragstart', src, dt);
-      dispatch('dragenter', tgt, dt);
-      dispatch('dragover', tgt, dt);
-      dispatch('drop', tgt, dt);
-      dispatch('dragend', src, dt);
-    `,
-      sourceSelector,
-      targetSelector
-    );
-  }
-
-  /**
-   * File upload: unhide if needed, then send local path to <input type=file>.
-   */
-  async uploadFileBySelector(selector: string, filePath: string): Promise<void> {
-    const el = await this.waitForElement(selector, 5000);
-    // Ensure it's an <input type=file>; if hidden, unhide via JS
-    await this.driver.executeScript(
-      `
-      var sel = arguments[0];
-      var e = document.querySelector(sel);
-      if (!e) throw new Error('uploadFile: element not found');
-      if (e.tagName !== 'INPUT' || e.type !== 'file')
-        throw new Error('uploadFile: selector must target <input type=file>');
-      var style = window.getComputedStyle(e);
-      if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
-        var s = e.style;
-        s.display = 'block'; s.visibility = 'visible'; s.opacity = '1';
-        s.position = 'fixed'; s.left = '0px'; s.top = '0px';
-        s.zIndex = '2147483647';
-      }
-    `,
-      selector
-    );
-    await el.sendKeys(filePath);
   }
 
   // ============================================================================
