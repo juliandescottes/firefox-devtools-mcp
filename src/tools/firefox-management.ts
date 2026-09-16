@@ -271,6 +271,20 @@ export const handleRestartFirefox = defineToolHandler(async (input: unknown) => 
 
   // Check if Firefox is currently running and connected
   const currentFirefox = getFirefoxIfRunning();
+
+  // In connect-existing, the browser cannot be restarted and the new
+  // configuration cannot be applied. Reject the tool explicitly. Checking args
+  // covers dropped sessions as well.
+  if (args.connectExisting || currentFirefox?.getOptions().connectExisting) {
+    return errorResponse(
+      new Error(
+        'restart_firefox cannot be used when the server is connected to an existing Firefox: ' +
+          'the browser is not managed by this server. Use close_firefox_session to release the ' +
+          'connection, the next browser tool call re-attaches to the same instance.'
+      )
+    );
+  }
+
   const isConnected = currentFirefox ? await currentFirefox.ensureConnected() : false;
 
   if (currentFirefox && isConnected) {

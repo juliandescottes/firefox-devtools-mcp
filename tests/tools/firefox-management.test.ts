@@ -12,6 +12,7 @@ const mockGetFirefoxIfRunning = vi.hoisted(() => vi.fn());
 const mockArgs = vi.hoisted(() => ({
   firefoxPath: undefined as string | undefined,
   profilePath: undefined as string | undefined,
+  connectExisting: undefined as boolean | undefined,
 }));
 
 const mockGetFirefox = vi.hoisted(() => vi.fn());
@@ -124,6 +125,7 @@ describe('Firefox Management Tools', () => {
       vi.clearAllMocks();
       mockArgs.firefoxPath = undefined;
       mockArgs.profilePath = undefined;
+      mockArgs.connectExisting = undefined;
     });
 
     describe('when Firefox is NOT running', () => {
@@ -276,6 +278,51 @@ describe('Firefox Management Tools', () => {
             prefs: { 'existing.pref': 'value' },
           })
         );
+      });
+    });
+
+    describe('when connected to an existing Firefox', () => {
+      const mockFirefoxInstance = {
+        getOptions: vi.fn(),
+        ensureConnected: vi.fn(),
+        close: vi.fn(),
+      };
+
+      beforeEach(() => {
+        mockGetFirefoxIfRunning.mockReturnValue(mockFirefoxInstance);
+        mockFirefoxInstance.ensureConnected.mockResolvedValue(true);
+        mockFirefoxInstance.close.mockResolvedValue(undefined);
+        mockFirefoxInstance.getOptions.mockReturnValue({
+          connectExisting: true,
+          marionettePort: 2828,
+        });
+      });
+
+      it('should reject the tool, even without arguments', async () => {
+        const { handleRestartFirefox } = await import('../../src/tools/firefox-management.js');
+
+        const result = await handleRestartFirefox({});
+
+        expect(result.isError).toBe(true);
+        expect(result.content[0].text).toContain('close_firefox_session');
+        // A rejected call must leave the existing session untouched.
+        expect(mockSetNextLaunchOptions).not.toHaveBeenCalled();
+        expect(mockResetFirefox).not.toHaveBeenCalled();
+      });
+
+      it('should reject the tool when the session is disconnected', async () => {
+        // Without this, the call falls through to the not-running branch and
+        // configures a regular launch, leaving connect-existing mode.
+        mockArgs.connectExisting = true;
+        mockArgs.firefoxPath = '/path/to/firefox';
+        mockFirefoxInstance.ensureConnected.mockResolvedValue(false);
+
+        const { handleRestartFirefox } = await import('../../src/tools/firefox-management.js');
+
+        const result = await handleRestartFirefox({ prefs: { 'some.pref': true } });
+
+        expect(result.isError).toBe(true);
+        expect(mockSetNextLaunchOptions).not.toHaveBeenCalled();
       });
     });
   });
