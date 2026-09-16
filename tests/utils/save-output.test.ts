@@ -3,7 +3,14 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { removeDir } from '../helpers/fs.js';
 import { basename, join, relative, sep } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -17,7 +24,11 @@ vi.mock('node:os', async (importOriginal) => {
   return { ...os, homedir: () => MOCK_HOME };
 });
 
-const mockArgs = vi.hoisted(() => ({ unrestrictedSavePaths: false }));
+const mockArgs = vi.hoisted(() => ({
+  unrestrictedSavePaths: false,
+  profilePath: undefined as string | undefined,
+  outputFile: undefined as string | undefined,
+}));
 vi.mock('../../src/index.js', () => ({ args: mockArgs }));
 
 import { saveOutput, isWithinRoot } from '../../src/utils/save-output.js';
@@ -28,6 +39,8 @@ describe('saveOutput', () => {
 
   beforeEach(() => {
     mockArgs.unrestrictedSavePaths = false;
+    mockArgs.profilePath = undefined;
+    mockArgs.outputFile = undefined;
   });
 
   afterEach(() => {
@@ -146,6 +159,75 @@ describe('saveOutput', () => {
       expect(existsSync(filePath)).toBe(false);
     });
 
+    it('should reject a relative path into a profile passed on the command line', async () => {
+      // The working directory stays writable, so a profile inside it is only
+      // protected by knowing where it is.
+      mockArgs.profilePath = relative(process.cwd(), join(cwdDir, 'ff-profile'));
+      const target = join(mockArgs.profilePath, 'firefox_devtools_mcp_profile', 'user.js');
+
+      await expect(saveOutput('data', target, 'get-page-text', 'txt')).rejects.toThrow(
+        'reads back'
+      );
+      expect(existsSync(join(process.cwd(), target))).toBe(false);
+    });
+
+    it('should reject a directory that looks like a Firefox profile', async () => {
+      // No configuration points here: recognised by its contents, which covers
+      // a profile reached with --connect-existing or named at runtime.
+      const profile = join(cwdDir, 'some-profile');
+      mkdirSync(profile, { recursive: true });
+      writeFileSync(join(profile, 'places.sqlite'), '');
+      const target = relative(process.cwd(), join(profile, 'user.js'));
+
+      await expect(saveOutput('data', target, 'get-page-text', 'txt')).rejects.toThrow(
+        'Firefox profile'
+      );
+      expect(existsSync(join(profile, 'user.js'))).toBe(false);
+    });
+
+    it('should allow the profile parent when it is an ordinary directory', async () => {
+      const parent = join(cwdDir, 'plain-parent');
+      mkdirSync(parent, { recursive: true });
+      mockArgs.profilePath = parent;
+      const target = relative(process.cwd(), join(parent, 'notes.txt'));
+
+      const saved = await saveOutput('data', target, 'get-page-text', 'txt');
+      expect(existsSync(saved.path)).toBe(true);
+    });
+
+    it('should reject the file passed to --output-file', async () => {
+      mockArgs.outputFile = join(cwdDir, 'firefox.log');
+      const target = relative(process.cwd(), mockArgs.outputFile);
+
+      await expect(saveOutput('data', target, 'get-page-text', 'txt')).rejects.toThrow(
+        'reads back'
+      );
+    });
+
+    it('should not be fooled by a symlink out of the allowed root', async () => {
+      const profile = join(HOME_ROOT, 'profile', 'firefox_devtools_mcp_profile');
+      mkdirSync(profile, { recursive: true });
+      mkdirSync(cwdDir, { recursive: true });
+      const link = join(cwdDir, 'link-to-profile');
+      symlinkSync(profile, link);
+      const target = join(relative(process.cwd(), link), 'user.js');
+
+      // Lexically the path sits under the working directory; resolved, it lands
+      // in the profile.
+      await expect(saveOutput('data', target, 'get-page-text', 'txt')).rejects.toThrow(
+        /outside the allowed location|reads back/
+      );
+      expect(existsSync(join(profile, 'user.js'))).toBe(false);
+    });
+
+    it('should allow an ordinary relative path while a profile is configured', async () => {
+      mockArgs.profilePath = join(cwdDir, 'ff-profile');
+      const target = relative(process.cwd(), join(cwdDir, 'snapshot.txt'));
+
+      const saved = await saveOutput('data', target, 'take-snapshot', 'txt');
+      expect(existsSync(saved.path)).toBe(true);
+    });
+
     it('should generate a timestamped file in the default output dir when no path is given', async () => {
       const saved = await saveOutput('data', undefined, 'evaluate-script');
 
@@ -181,7 +263,7 @@ describe('isWithinRoot', () => {
 
   it('rejects paths outside the root, including prefix look-alikes', () => {
     expect(isWithinRoot(root, join('C:', 'Users', 'me', 'secrets', 'out.json'))).toBe(false);
-    expect(isWithinRoot(root, `${root}-evil`)).toBe(false);
+    expect(isWithinRoot(root, `${root}-other`)).toBe(false);
   });
 
   it('ignores case on Windows, where the filesystem does too', () => {

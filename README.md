@@ -262,7 +262,7 @@ Large tool output can consume significant context in CLI clients like Claude Cod
 `evaluate_privileged_script` tools accept an optional `saveTo` parameter that writes the
 result to a file instead of returning it inline. `saveTo` takes one of three forms:
 
-- a file path (relative to the current working directory, or absolute within `~/.firefox-devtools-mcp/output`; parent directories are created)
+- a file path (relative to the current working directory, or absolute within `~/.firefox-devtools-mcp/output`; parent directories are created). Paths reaching a Firefox profile, or the files this server reads back, are refused
 - an existing directory (a timestamped file is generated inside it)
 - `true` (a timestamped file is generated under `~/.firefox-devtools-mcp/output/`)
 
