@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `close_firefox_session` tool that ends the browser session: it releases the connection when the server is attached to an existing Firefox, and closes the browser when the server started it
 - `fullPage` option on `screenshot_page` to capture the whole scrollable document instead of the viewport
-- `downloadFolder` option on `set_download_behavior`, used when `behavior` is `allowed` and defaulting to `~/.firefox-devtools-mcp/downloads`, instead of relying on the Firefox default download directory
+- `downloadFolder` option on `set_download_behavior`, used when `behavior` is `allowed` and defaulting to `~/.firefox-devtools-mcp/output/downloads`, instead of relying on the Firefox default download directory
 
 ### Fixed
 - No longer fails to find the Firefox binary on Linux with Flatpak
