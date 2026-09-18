@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.3] - 2026-09-18
+
+### Added
+- `close_firefox_session` tool that ends the browser session: it releases the connection when the server is attached to an existing Firefox, and closes the browser when the server started it
+- `fullPage` option on `screenshot_page` to capture the whole scrollable document instead of the viewport
+- `downloadFolder` option on `set_download_behavior`, used when `behavior` is `allowed` and defaulting to `~/.firefox-devtools-mcp/downloads`, instead of relying on the Firefox default download directory
+
+### Fixed
+- No longer fails to find the Firefox binary on Linux with Flatpak
+- `restart_firefox` now rejects when used for a server started with `--connectExisting`
+
+### Changed
+- Servers connecting to an existing browser will disconnect from Firefox after being idle for 30 minutes without a tool call.
+- The `restart_firefox` tool is now part of the mozilla-internal package, and should only be used in controlled environments as it allows the agent to restart the browser with a custom configuration
+- Path checks for the `saveTo` parameters have been improved to avoid overlapping with existing profile folders
+
 ## [0.10.2] - 2026-09-04
 
 ### Added
