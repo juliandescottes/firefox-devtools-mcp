@@ -47,13 +47,26 @@ export type TypedToolHandler<D extends ToolDefinition> = (
   args?: ToolArgsOf<D>
 ) => Promise<McpToolResponse>;
 
-export interface ToolEntry<D extends ToolDefinition = ToolDefinition> {
+export interface ToolOptions {
+  /**
+   * The tool needs BiDi commands which a session restricted to a container rejects.
+   * Set by hand: keep in sync with the commands Firefox allows in such sessions.
+   */
+  unavailableInRestrictedSession?: boolean;
+}
+
+export interface ToolEntry<D extends ToolDefinition = ToolDefinition> extends ToolOptions {
   definition: D;
   handler: ToolHandler;
 }
 
-/** Definition/handler pairs as they are written in a module config. */
-type ToolPairs = readonly (readonly [ToolDefinition, (args: never) => Promise<McpToolResponse>])[];
+type ConfigHandler = (args: never) => Promise<McpToolResponse>;
+
+/** Definition/handler pairs, with optional tool options, as they are written in a module config. */
+type ToolPairs = readonly (
+  | readonly [ToolDefinition, ConfigHandler]
+  | readonly [ToolDefinition, ConfigHandler, ToolOptions]
+)[];
 
 /** The entries a module config's pairs turn into, definition types kept. */
 type EntriesOf<T extends ToolPairs> = { -readonly [I in keyof T]: ToolEntry<T[I][0]> };
@@ -77,7 +90,9 @@ export interface ModuleConfig<T extends ToolPairs = ToolPairs> {
   description: string;
   privileged?: boolean;
   mozOnly?: boolean;
-  /** Each entry pairs a tool definition with its handler. */
+  /** Applies unavailableInRestrictedSession to every tool of the module. */
+  unavailableInRestrictedSession?: boolean;
+  /** Each entry pairs a tool definition with its handler, and optional tool options. */
   tools: T;
 }
 
@@ -170,9 +185,12 @@ export function defineModule<const T extends ToolPairs>(
     description: config.description,
     ...(config.privileged ? { privileged: true } : {}),
     ...(config.mozOnly ? { mozOnly: true } : {}),
-    tools: config.tools.map(([definition, handler]) => ({
+    tools: config.tools.map(([definition, handler, options]) => ({
       definition,
       handler,
+      ...(config.unavailableInRestrictedSession || options?.unavailableInRestrictedSession
+        ? { unavailableInRestrictedSession: true }
+        : {}),
     })) as EntriesOf<T>,
   };
 }

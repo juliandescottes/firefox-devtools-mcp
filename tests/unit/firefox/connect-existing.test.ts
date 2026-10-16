@@ -77,6 +77,10 @@ describe('getFirefox() reconnect behavior', () => {
           return null;
         }
 
+        getRestrictedUserContext(): null {
+          return null;
+        }
+
         getOptions(): Record<string, unknown> {
           return this.resolvedOptions;
         }
