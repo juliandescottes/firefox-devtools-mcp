@@ -38,6 +38,9 @@ let nextLaunchOptions: FirefoxLaunchOptions | null = null;
 let existingFirefoxReconnectOptions: FirefoxLaunchOptions | null = null;
 // Warning generated during Firefox startup, surfaced in the first tool response.
 let pendingWarning: string | null = null;
+// Whether the last connected session was restricted to a container. Kept after
+// a disconnect, as reconnecting to the same Firefox gives the same restriction.
+let restrictedSession = false;
 
 /**
  * Reset Firefox instance (used when disconnection is detected).
@@ -149,6 +152,7 @@ export async function getFirefox(): Promise<FirefoxDevTools> {
       existingFirefoxReconnectOptions = { ...firefox.getOptions() };
     }
     pendingWarning = firefox.getAndClearProfileWarning();
+    restrictedSession = firefox.getRestrictedUserContext() !== null;
     return firefox;
   } catch (error) {
     existingFirefoxReconnectOptions = null;
@@ -202,6 +206,7 @@ export async function run(
     warnings,
     toolDefinitions: allTools,
     handlers: toolHandlers,
+    unavailableInRestrictedSession,
     instructions,
   } = buildToolset({
     tools: args.tools,
@@ -235,17 +240,23 @@ export async function run(
     },
     {
       capabilities: {
-        tools: {},
+        tools: { listChanged: true },
       },
       instructions,
     }
   );
 
+  const restrictedSessionTools = allTools.filter(
+    (tool) => !unavailableInRestrictedSession.has(tool.name)
+  );
+  let listedRestrictedSession = false;
+
   // List available tools
   mcpServer.server.setRequestHandler(ListToolsRequestSchema, async () => {
     log('Listing available tools');
+    listedRestrictedSession = restrictedSession;
     return {
-      tools: allTools,
+      tools: restrictedSession ? restrictedSessionTools : allTools,
     };
   });
 
@@ -274,6 +285,19 @@ export async function run(
     activeCalls++;
     try {
       await disconnecting;
+      if (unavailableInRestrictedSession.has(name)) {
+        // The restriction is only known once connected, and can change after a
+        // restart. Connect only once: a second attempt would drop the options of
+        // a restart, or prompt the user again in connect-existing mode.
+        try {
+          await getFirefox();
+        } catch (error) {
+          return errorResponse(error instanceof Error ? error : String(error));
+        }
+        if (restrictedSession) {
+          return errorResponse(`${name} is not available in a session restricted to a container.`);
+        }
+      }
       const result = await handler(args);
       if (pendingWarning) {
         // Return as isError so that agents acting as MCP clients (e.g. Claude)
@@ -292,6 +316,13 @@ export async function run(
       logError(`Error executing tool ${name}`, error);
       throw error;
     } finally {
+      // The tool list is only known once a tool call connected to Firefox.
+      if (restrictedSession !== listedRestrictedSession) {
+        listedRestrictedSession = restrictedSession;
+        mcpServer.server
+          .sendToolListChanged()
+          .catch((error) => logError('Error sending tool list change', error));
+      }
       activeCalls--;
       if (!shuttingDown && activeCalls === 0 && firefox?.getOptions().connectExisting === true) {
         idleTimer = setTimeout(() => {

@@ -59,5 +59,6 @@ export const handlePrintPage = defineToolHandler<typeof printPageTool>(
 export const module = defineModule({
   name: 'print',
   description: 'Print the page to PDF.',
+  unavailableInRestrictedSession: true,
   tools: [[printPageTool, handlePrintPage]],
 });
