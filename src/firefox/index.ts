@@ -77,7 +77,14 @@ export class FirefoxClient {
    * Connect and initialize all modules
    */
   async connect(): Promise<void> {
-    this.bidi = new BiDiFacade(await this.core.connect());
+    const driver = await this.core.connect();
+    // Firefox restricts sessions started at runtime to a single user context,
+    // and then reports it with this capability.
+    const userContext = (this.core.getCapabilities().get('moz:userContext') as string) ?? null;
+    if (userContext) {
+      log(`Session restricted to user context ${userContext}`);
+    }
+    this.bidi = new BiDiFacade(driver, userContext);
 
     // Initialize snapshot manager first
     this.snapshot = new SnapshotManager(this.bidi);
@@ -462,7 +469,11 @@ export class FirefoxClient {
     } else if (behavior === 'denied') {
       downloadBehavior = { type: 'denied' };
     }
-    await this.getBidi().sendCommand('browser.setDownloadBehavior', { downloadBehavior });
+    const userContext = this.getRestrictedUserContext();
+    await this.getBidi().sendCommand('browser.setDownloadBehavior', {
+      downloadBehavior,
+      ...(userContext ? { userContexts: [userContext] } : {}),
+    });
   }
 
   // ============================================================================
@@ -569,6 +580,13 @@ export class FirefoxClient {
       return false;
     }
     return await this.pages.ensureCurrentContext();
+  }
+
+  /**
+   * User context the session is restricted to, or null for an unrestricted session.
+   */
+  getRestrictedUserContext(): string | null {
+    return this.bidi?.getRestrictedUserContext() ?? null;
   }
 
   /**

@@ -8,6 +8,7 @@ import type {
   EmptyResult,
   Network,
   Script,
+  Session,
 } from 'webdriver-bidi-protocol';
 import { logDebug } from '../utils/logger.js';
 import { BiDiTimeoutError } from '../utils/errors.js';
@@ -128,17 +129,42 @@ export class BiDiFacade extends EventEmitter<FirefoxEventMap> {
   private listening = false;
   private nextCommandId = 1;
 
-  constructor(private readonly driver: WebDriver) {
+  /**
+   * @param userContext - User context the session is restricted to, or null
+   *   for an unrestricted session.
+   */
+  constructor(
+    private readonly driver: WebDriver,
+    private readonly userContext: string | null = null
+  ) {
     super();
   }
 
-  async subscribe(events: FirefoxEventName | FirefoxEventName[]) {
+  /**
+   * User context the session is restricted to, or null for an unrestricted session.
+   */
+  getRestrictedUserContext(): string | null {
+    return this.userContext;
+  }
+
+  /**
+   * Subscribe to events, and return the subscription id.
+   * A restricted session only accepts subscriptions to its user context, and
+   * these can only be removed by subscription id, not by event names.
+   */
+  async subscribe(
+    events: FirefoxEventName | [FirefoxEventName, ...FirefoxEventName[]]
+  ): Promise<Session.Subscription> {
     const bidi = await this.driver.getBidi();
     if (!this.listening) {
       this.listenForEvents(bidi.socket);
       this.listening = true;
     }
-    await bidi.subscribe(events);
+    const result = await this.sendCommand('session.subscribe', {
+      events: typeof events === 'string' ? [events] : events,
+      ...(this.userContext ? { userContexts: [this.userContext] } : {}),
+    });
+    return result.subscription;
   }
 
   async sendCommand<T extends keyof FirefoxCommands>(
@@ -167,7 +193,17 @@ export class BiDiFacade extends EventEmitter<FirefoxEventMap> {
           if (payload.id === id) {
             clearTimeout(timeoutId);
             ws.off('message', messageHandler);
-            if (payload.error) {
+            // Only rewrite the error for commands which are not available at all
+            // in a restricted session. Firefox uses the same error for privileged
+            // pages, and for allowed commands with missing user context parameters.
+            if (
+              payload.error === 'unsupported operation' &&
+              payload.message?.startsWith(`${method} is not supported in a session restricted`)
+            ) {
+              reject(
+                new Error(`${method} is not available in a session restricted to a container.`)
+              );
+            } else if (payload.error) {
               const details = payload.message ? `: ${payload.message}` : '';
               reject(new Error(`BiDi error: ${JSON.stringify(payload.error)}${details}`));
             } else {

@@ -6,6 +6,10 @@
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import {
+  ToolListChangedNotificationSchema,
+  type ServerCapabilities,
+} from '@modelcontextprotocol/sdk/types.js';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -32,6 +36,12 @@ export interface McpTestServer {
   /** Temporary home directory of the server process. */
   home: string;
   callTool<N extends ToolName>(name: N, args?: ToolArgs<N>): Promise<ToolResult>;
+  /** Names of the tools the server currently lists. */
+  listTools(): Promise<string[]>;
+  /** Number of tools/list_changed notifications received so far. */
+  toolListChanges(): number;
+  /** Capabilities the server declared when the client connected. */
+  serverCapabilities(): ServerCapabilities | undefined;
   close(): Promise<void>;
 }
 
@@ -63,6 +73,10 @@ export async function startMcpServer(serverArgs: string[] = []): Promise<McpTest
     stderr: 'ignore',
   });
   const client = new Client({ name: 'firefox-mcp-tests', version: '0.0.0' });
+  let toolListChanges = 0;
+  client.setNotificationHandler(ToolListChangedNotificationSchema, () => {
+    toolListChanges++;
+  });
   await client.connect(transport);
 
   return {
@@ -79,6 +93,16 @@ export async function startMcpServer(serverArgs: string[] = []): Promise<McpTest
           .join('\n'),
         isError: result.isError === true,
       };
+    },
+    async listTools() {
+      const { tools } = await client.listTools();
+      return tools.map((tool) => tool.name);
+    },
+    toolListChanges() {
+      return toolListChanges;
+    },
+    serverCapabilities() {
+      return client.getServerCapabilities();
     },
     async close() {
       try {
