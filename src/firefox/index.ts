@@ -77,14 +77,16 @@ export class FirefoxClient {
    * Connect and initialize all modules
    */
   async connect(): Promise<void> {
-    const driver = await this.core.connect();
-    // Firefox restricts sessions started at runtime to a single user context,
-    // and then reports it with this capability.
-    const userContext = (this.core.getCapabilities().get('moz:userContext') as string) ?? null;
+    this.bidi = new BiDiFacade(await this.core.connect());
+    // Firefox creates a dedicated user context for sessions started at runtime,
+    // and reports it with this capability.
+    const userContext = this.core.getCapabilities().get('moz:userContext') as string | undefined;
     if (userContext) {
-      log(`Session restricted to user context ${userContext}`);
+      await this.bidi.detectRestrictedUserContext(userContext);
+      if (this.bidi.getRestrictedUserContext()) {
+        log(`Session restricted to user context ${userContext}`);
+      }
     }
-    this.bidi = new BiDiFacade(driver, userContext);
 
     // Initialize snapshot manager first
     this.snapshot = new SnapshotManager(this.bidi);

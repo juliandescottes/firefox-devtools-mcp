@@ -35,6 +35,16 @@ export class BiDiTimeoutError extends Error {
 }
 
 /**
+ * Error thrown when a session restricted to a container rejects a BiDi command
+ */
+export class RestrictedSessionError extends Error {
+  constructor(method: string) {
+    super(`${method} is not available in a session restricted to a container.`);
+    this.name = 'RestrictedSessionError';
+  }
+}
+
+/**
  * Check if an error indicates Firefox disconnection
  */
 export function isDisconnectionError(error: unknown): boolean {

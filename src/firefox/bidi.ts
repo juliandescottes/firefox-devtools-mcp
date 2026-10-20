@@ -11,7 +11,7 @@ import type {
   Session,
 } from 'webdriver-bidi-protocol';
 import { logDebug } from '../utils/logger.js';
-import { BiDiTimeoutError } from '../utils/errors.js';
+import { BiDiTimeoutError, RestrictedSessionError } from '../utils/errors.js';
 import { remoteValueToNative } from '../utils/remote-value.js';
 
 // Firefox-specific events
@@ -128,16 +128,27 @@ export const DataType = {
 export class BiDiFacade extends EventEmitter<FirefoxEventMap> {
   private listening = false;
   private nextCommandId = 1;
+  private userContext: string | null = null;
+
+  constructor(private readonly driver: WebDriver) {
+    super();
+  }
 
   /**
-   * @param userContext - User context the session is restricted to, or null
-   *   for an unrestricted session.
+   * Restrict the facade to the user context of the session, if Firefox enforces
+   * the restriction. The user context alone is not enough: the restriction also
+   * depends on a Firefox pref. A restricted session rejects browser.getUserContexts.
    */
-  constructor(
-    private readonly driver: WebDriver,
-    private readonly userContext: string | null = null
-  ) {
-    super();
+  async detectRestrictedUserContext(userContext: string): Promise<void> {
+    try {
+      await this.sendCommand('browser.getUserContexts', {});
+    } catch (error) {
+      if (error instanceof RestrictedSessionError) {
+        this.userContext = userContext;
+      } else {
+        logDebug('Unable to check if the session is restricted', error);
+      }
+    }
   }
 
   /**
@@ -200,9 +211,7 @@ export class BiDiFacade extends EventEmitter<FirefoxEventMap> {
               payload.error === 'unsupported operation' &&
               payload.message?.startsWith(`${method} is not supported in a session restricted`)
             ) {
-              reject(
-                new Error(`${method} is not available in a session restricted to a container.`)
-              );
+              reject(new RestrictedSessionError(method));
             } else if (payload.error) {
               const details = payload.message ? `: ${payload.message}` : '';
               reject(new Error(`BiDi error: ${JSON.stringify(payload.error)}${details}`));
