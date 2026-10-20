@@ -106,3 +106,25 @@ describe('Container restricted session', () => {
     );
   });
 });
+
+describe('Container session without isolation', () => {
+  let firefox: FirefoxClient;
+
+  beforeAll(async () => {
+    firefox = await createTestFirefox({ prefs: { [FORCE_CONTAINER_PREF]: true } });
+  }, 30000);
+
+  afterAll(async () => {
+    await closeFirefox(firefox);
+  });
+
+  it('does not report a restricted user context', async (ctx) => {
+    if (!isSupported(firefox)) {
+      console.warn('Skipping container session tests: requires Firefox 160 or later');
+      ctx.skip();
+    }
+    const capabilities = await firefox.getDriver().getCapabilities();
+    expect(capabilities.get('moz:userContext')).toEqual(expect.any(String));
+    expect(firefox.getRestrictedUserContext()).toBeNull();
+  });
+});
