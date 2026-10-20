@@ -426,13 +426,6 @@ export class FirefoxCore {
     this.firefoxVersion = (driverCapabilities.get('browserVersion') as string) ?? null;
     logDebug(`Browser version: ${this.firefoxVersion}`);
 
-    // Firefox restricts sessions started at runtime to a single user context,
-    // and then reports it with this capability.
-    this.restrictedUserContext = (driverCapabilities.get('moz:userContext') as string) ?? null;
-    if (this.restrictedUserContext) {
-      log(`Session restricted to user context ${this.restrictedUserContext}`);
-    }
-
     // In connect-existing mode, geckodriver can attach to a Firefox that was
     // started with --marionette but without --remote-debugging-port. Marionette
     // works, but the session has no BiDi endpoint, so most tools would later
@@ -443,6 +436,14 @@ export class FirefoxCore {
           '(missing webSocketUrl capability). Restart Firefox with both flags: ' +
           'firefox --marionette --remote-debugging-port.'
       );
+    }
+
+    // Firefox creates a dedicated user context for sessions started at runtime,
+    // and reports it with this capability.
+    const userContext = (driverCapabilities.get('moz:userContext') as string) ?? null;
+    if (userContext && (await this.isSessionRestricted())) {
+      this.restrictedUserContext = userContext;
+      log(`Session restricted to user context ${userContext}`);
     }
 
     // Remember current window handle (browsing context)
@@ -537,6 +538,24 @@ export class FirefoxCore {
    */
   getFirefoxVersion(): string | null {
     return this.firefoxVersion;
+  }
+
+  /**
+   * Whether Firefox restricts the session to its user context. The user context
+   * alone is not enough: the restriction also depends on a Firefox pref. A
+   * restricted session rejects browser.getUserContexts.
+   */
+  private async isSessionRestricted(): Promise<boolean> {
+    try {
+      const bidi = await this.getDriver().getBidi();
+      const response = (await bidi.send({ method: 'browser.getUserContexts', params: {} })) as {
+        error?: string;
+      };
+      return response.error === 'unsupported operation';
+    } catch (error) {
+      logDebug('Unable to check if the session is restricted', error);
+      return false;
+    }
   }
 
   /**
