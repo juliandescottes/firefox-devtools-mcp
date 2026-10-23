@@ -11,6 +11,8 @@ const COMMON_URL_SCHEMES = ['http:', 'https:', 'data:', 'blob:', 'file:'];
 const PAGES_SANDBOX = 'page-management';
 // script.evaluate cannot answer while the content process is busy, so a hung tab must not block the whole tab list
 const TITLE_TIMEOUT_MS = 1000;
+// Bug 1901211: setViewport never resolves when the page is zoomed
+const VIEWPORT_TIMEOUT_MS = 5000;
 
 /**
  * Check if a URL uses a common scheme that supports load events.
@@ -93,7 +95,38 @@ export class PageManagement {
    * Set viewport size
    */
   async setViewportSize(width: number, height: number): Promise<void> {
-    await this.driver.manage().window().setRect({ width, height });
+    const contextId = this.getCurrentContextId();
+    if (!contextId) {
+      throw new Error(`Cannot set viewport: no browsing context ID`);
+    }
+
+    await this.setViewport(contextId, { width, height });
+  }
+
+  private async setViewport(
+    contextId: string,
+    viewport: BrowsingContext.SetViewportParameters['viewport']
+  ): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        this.sendBiDiCommand('browsingContext.setViewport', { context: contextId, viewport }),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () =>
+              reject(
+                new Error(
+                  `Firefox did not confirm the new viewport size within ${VIEWPORT_TIMEOUT_MS}ms. ` +
+                    'The viewport was probably resized, but Firefox cannot confirm it when the page is zoomed.'
+                )
+              ),
+            VIEWPORT_TIMEOUT_MS
+          );
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /**
