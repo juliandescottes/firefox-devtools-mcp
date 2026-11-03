@@ -1,0 +1,26 @@
+{
+  "name": "firefox-mcp",
+  "displayName": "Firefox MCP",
+  "description": "Control Firefox for browsing, web testing, and debugging. Fill forms, capture network and console activity, take screenshots, run scripts, and profile performance. Supports Android devices.",
+  "author": {
+    "name": "Mozilla",
+    "url": "https://github.com/mozilla/firefox-mcp"
+  },
+  "repository": "https://github.com/mozilla/firefox-mcp",
+  "homepage": "https://github.com/mozilla/firefox-mcp",
+  "license": "MIT OR Apache-2.0",
+  "mcpServers": {
+    "firefox": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@mozilla/firefox-mcp@latest",
+        "--auto-profile",
+        "--tool-preset",
+        "developer",
+        "--pref",
+        "remote.prefs.recommended=false"
+      ]
+    }
+  }
+}

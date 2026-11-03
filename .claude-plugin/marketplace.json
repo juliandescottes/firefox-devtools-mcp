@@ -1,12 +1,12 @@
 {
-  "name": "firefox-devtools-plugins",
+  "name": "firefox-mcp",
   "owner": {
     "name": "Mozilla"
   },
   "plugins": [
     {
-      "name": "firefox-devtools-mcp",
-      "source": "./plugins/firefox-devtools-mcp/",
+      "name": "firefox-mcp",
+      "source": "./plugins/firefox-mcp/",
       "description": "Control Firefox for browsing, web testing, and debugging. Fill forms, capture network and console activity, take screenshots, run scripts, and profile performance. Supports Android devices.",
       "homepage": "https://github.com/mozilla/firefox-mcp",
       "repository": "https://github.com/mozilla/firefox-mcp",
@@ -16,9 +16,20 @@
       }
     },
     {
-      "name": "firefox-devtools-troubleshoot",
-      "source": "./plugins/firefox-devtools-troubleshoot/",
-      "description": "Diagnose and fix Firefox MCP setup issues. Use this if the firefox-devtools-mcp plugin is not working.",
+      "name": "firefox-mcp-troubleshoot",
+      "source": "./plugins/firefox-mcp-troubleshoot/",
+      "description": "Diagnose and fix Firefox MCP setup issues. Use this if the firefox-mcp plugin is not working.",
+      "homepage": "https://github.com/mozilla/firefox-mcp",
+      "repository": "https://github.com/mozilla/firefox-mcp",
+      "license": "MIT OR Apache-2.0",
+      "author": {
+        "name": "Mozilla"
+      }
+    },
+    {
+      "name": "firefox-devtools-mcp",
+      "source": "./plugins/firefox-devtools-mcp/",
+      "description": "Renamed to firefox-mcp. This old entry only keeps the Firefox MCP server running for existing installs, with its old tool names. Install firefox-mcp to get the skills, agents and commands, then uninstall this one.",
       "homepage": "https://github.com/mozilla/firefox-mcp",
       "repository": "https://github.com/mozilla/firefox-mcp",
       "license": "MIT OR Apache-2.0",
@@ -26,5 +37,8 @@
         "name": "Mozilla"
       }
     }
-  ]
+  ],
+  "renames": {
+    "firefox-devtools-troubleshoot": "firefox-mcp-troubleshoot"
+  }
 }
