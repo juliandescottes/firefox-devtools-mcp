@@ -7,43 +7,57 @@ Control Firefox for automated browsing, web testing, and debugging. Navigate pag
 - **MCP Server** - Connects Claude Code to Firefox via WebDriver BiDi
 - **Skill** - Auto-triggers for browser automation, testing, and debugging tasks
 - **Agents** - Dedicated `e2e-tester` and `web-extractor` agents for focused tasks
-- **Commands** - `/firefox-devtools-mcp:navigate`, `/firefox-devtools-mcp:screenshot`, `/firefox-devtools-mcp:debug`
+- **Commands** - `/firefox-mcp:navigate`, `/firefox-mcp:screenshot`, `/firefox-mcp:debug`
 
 ## Installation
 
 ```bash
 /plugin marketplace add mozilla/firefox-mcp
-/plugin install firefox-devtools-mcp@firefox-devtools-plugins
+/plugin install firefox-mcp@firefox-mcp
 ```
+
+## Switching from firefox-devtools-mcp
+
+The plugin was renamed from `firefox-devtools-mcp` to `firefox-mcp`. The old plugin still runs the MCP server, but it no longer has the skills, agents and commands. To switch:
+
+```bash
+/plugin marketplace update firefox-devtools-plugins
+/plugin install firefox-mcp@firefox-devtools-plugins
+/plugin uninstall firefox-devtools-mcp@firefox-devtools-plugins
+```
+
+If you added the marketplace before the rename, it is still registered as `firefox-devtools-plugins` on your machine, so use that name in these commands. The troubleshoot plugin was renamed too: install it again with `/plugin install firefox-mcp-troubleshoot@firefox-devtools-plugins`.
+
+The tool names change from `mcp__plugin_firefox-devtools-mcp_firefox-devtools__*` to `mcp__plugin_firefox-mcp_firefox__*`, so update any permission rules that use the old names.
 
 ## Commands
 
-### /firefox-devtools-mcp:navigate
+### /firefox-mcp:navigate
 
 Navigate to a URL and take a DOM snapshot:
 
 ```
-/firefox-devtools-mcp:navigate https://example.com
-/firefox-devtools-mcp:navigate https://github.com/login
+/firefox-mcp:navigate https://example.com
+/firefox-mcp:navigate https://github.com/login
 ```
 
-### /firefox-devtools-mcp:screenshot
+### /firefox-mcp:screenshot
 
 Capture the current page or a specific element:
 
 ```
-/firefox-devtools-mcp:screenshot
-/firefox-devtools-mcp:screenshot e15
+/firefox-mcp:screenshot
+/firefox-mcp:screenshot e15
 ```
 
-### /firefox-devtools-mcp:debug
+### /firefox-mcp:debug
 
 Show console errors and failed network requests:
 
 ```
-/firefox-devtools-mcp:debug
-/firefox-devtools-mcp:debug console
-/firefox-devtools-mcp:debug network
+/firefox-mcp:debug
+/firefox-mcp:debug console
+/firefox-mcp:debug network
 ```
 
 ## Agents

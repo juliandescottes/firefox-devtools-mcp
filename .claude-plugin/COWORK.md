@@ -7,7 +7,7 @@
 
 ## Installation Steps
 
-Step by step guide to install the firefox-devtools-mcp plugin to Claude Cowork.
+Step by step guide to install the firefox-mcp plugin to Claude Cowork.
 
 At any point, make sure the **Cowork** tab is selected and not the **Chat** tab. Plugins only work with Cowork.
 
@@ -55,7 +55,7 @@ At any point, make sure the **Cowork** tab is selected and not the **Chat** tab.
 
 Some known issues / limitations.
 
-**Q: Claude says the Firefox DevTools tools aren't available, or suggests using a different browser.**
+**Q: Claude says the Firefox MCP tools aren't available, or suggests using a different browser.**
 
 Cowork is often vague about the root cause — it may say things like "the MCP server failed to connect" or "the tools aren't registered", or simply offer to switch to Chrome instead. Check the following:
 
@@ -64,6 +64,10 @@ Cowork is often vague about the root cause — it may say things like "the MCP s
 - The plugin is not installed. Check that it is listed after clicking on **Customize > Plugins**.
 
 If none of the above helps, file a bug on [Bugzilla](https://bugzilla.mozilla.org/enter_bug.cgi?format=__default__&blocked=2026717&product=Developer%20Infrastructure&component=Firefox%20MCP) or ask in the [#firefox-devtools-mcp Matrix room](https://chat.mozilla.org/#/room/#firefox-devtools-mcp:mozilla.org).
+
+**Q: After an update, the plugin shows as "Firefox MCP (old plugin name)" and its skills are gone.**
+
+The plugin was renamed from `firefox-devtools-mcp` to `firefox-mcp`. The old plugin still runs the tools, but not the skills. In **Customize > Plugins**, install **firefox-mcp** from the same marketplace, then remove **firefox-devtools-mcp**.
 
 **Q: Firefox closes after Claude has executed its task.**
 
