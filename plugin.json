@@ -6,8 +6,8 @@
   "author": {
     "name": "Mozilla"
   },
-  "homepage": "https://github.com/mozilla/firefox-devtools-mcp",
-  "repository": "https://github.com/mozilla/firefox-devtools-mcp",
+  "homepage": "https://github.com/mozilla/firefox-mcp",
+  "repository": "https://github.com/mozilla/firefox-mcp",
   "license": "MIT OR Apache-2.0",
   "keywords": [
     "firefox",
