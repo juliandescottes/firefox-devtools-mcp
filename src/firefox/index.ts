@@ -16,7 +16,7 @@ import {
   DialogEvents,
 } from './events/index.js';
 import type { NetworkBodyResult } from './events/network.js';
-import { DomInteractions } from './dom.js';
+import { DomInteractions, type WaitForOptions } from './dom.js';
 import { PageManagement } from './pages.js';
 import { CacheManagement, type CacheBehavior } from './cache.js';
 import { SnapshotManager, type Snapshot, type SnapshotOptions } from './snapshot/index.js';
@@ -188,6 +188,10 @@ export class FirefoxClient {
 
   async uploadFileByUid(uid: string, filePath: string): Promise<void> {
     return await this.getDom().uploadFileByUid(this.getContext(), uid, filePath);
+  }
+
+  async waitFor(options: WaitForOptions): Promise<number> {
+    return await this.getDom().waitFor(this.getContext(), options);
   }
 
   async pressKey(key: string, uid?: string): Promise<void> {
