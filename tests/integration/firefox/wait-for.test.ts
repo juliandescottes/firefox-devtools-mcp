@@ -11,7 +11,13 @@ const PAGE =
   'setTimeout(() => { slot.innerHTML = "<button id=late>Late</button>"; old.remove(); }, 500);' +
   'customElements.define("x-box", class extends HTMLElement { connectedCallback() {' +
   ' const root = this.attachShadow({ mode: "open" });' +
-  ' setTimeout(() => { root.innerHTML = "<span>Deep text</span>"; }, 500); } });</script>';
+  ' setTimeout(() => { root.innerHTML = "<span>Deep text</span>"; }, 500); } });</script>' +
+  '<x-hidden></x-hidden><x-host hidden></x-host><x-fallback></x-fallback><script>' +
+  'const define = (name, html) => customElements.define(name, class extends HTMLElement' +
+  ' { connectedCallback() { this.attachShadow({ mode: "open" }).innerHTML = html; } });' +
+  'define("x-hidden", "<span hidden>Hidden text</span>");' +
+  'define("x-host", "<span>Hidden host text</span>");' +
+  'define("x-fallback", "<slot>Fallback text</slot>");</script>';
 
 describe('waitFor Integration Tests', () => {
   let firefox: FirefoxClient;
@@ -39,6 +45,25 @@ describe('waitFor Integration Tests', () => {
 
     expect(await firefox.evaluate('document.querySelector("x-box").shadowRoot.textContent')).toBe(
       'Deep text'
+    );
+  }, 10000);
+
+  it('should not see the text of a hidden element', async () => {
+    await firefox.navigate(PAGE);
+
+    await expect(firefox.waitFor({ text: 'Hidden text', timeout: 300 })).rejects.toThrow(
+      /did not appear/
+    );
+    await expect(firefox.waitFor({ text: 'Hidden host text', timeout: 300 })).rejects.toThrow(
+      /did not appear/
+    );
+  }, 10000);
+
+  it('should see the fallback text of a slot', async () => {
+    await firefox.navigate(PAGE);
+
+    await expect(firefox.waitFor({ text: 'Fallback text', timeout: 300 })).resolves.toBeTypeOf(
+      'number'
     );
   }, 10000);
 

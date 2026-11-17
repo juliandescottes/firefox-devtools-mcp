@@ -185,9 +185,36 @@ const PRESENCE_SCRIPT = `(selector, text) => {
       [...root.querySelectorAll(selector)].some((el) => el.checkVisibility({ visibilityProperty: true }))
     );
   }
-  const textOf = (root) =>
-    root.body ? root.body.innerText : [...root.children].map((el) => el.innerText).join('\\n');
-  return roots.some((root) => textOf(root).includes(text));
+  // An element with display: contents, like a slot, has no box for checkVisibility() to find, so
+  // it is shown as long as its parent in the flat tree is.
+  const isContents = (el) => getComputedStyle(el).display === 'contents';
+  const isShown = (el) =>
+    el.checkVisibility() ||
+    (isContents(el) && isShown(el.assignedSlot ?? el.parentElement ?? el.getRootNode().host));
+  // innerText leaves out hidden descendants, but not the text of an element that is hidden itself
+  const textOf = (node) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      return node.data;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) {
+      return '';
+    }
+    if (node.checkVisibility()) {
+      return node.innerText;
+    }
+    if (!isContents(node)) {
+      return '';
+    }
+    const shown = node.localName === 'slot' ? node.assignedNodes({ flatten: true }) : node.childNodes;
+    return [...shown].map(textOf).join('');
+  };
+  const rootText = (root) => {
+    if (root.body) {
+      return textOf(root.body);
+    }
+    return isShown(root.host) ? [...root.childNodes].map(textOf).join('\\n') : '';
+  };
+  return roots.some((root) => rootText(root).includes(text));
 }`;
 
 export class DomInteractions {
