@@ -3,7 +3,7 @@
   "name": "io.github.mozilla/firefox-mcp",
   "title": "Firefox MCP",
   "description": "Control and debug Firefox: navigate, fill forms, inspect network and console, profile.",
-  "version": "0.10.7",
+  "version": "0.11.0",
   "websiteUrl": "https://github.com/mozilla/firefox-mcp",
   "repository": {
     "url": "https://github.com/mozilla/firefox-mcp",
@@ -14,7 +14,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@mozilla/firefox-mcp",
-      "version": "0.10.7",
+      "version": "0.11.0",
       "transport": {
         "type": "stdio"
       },

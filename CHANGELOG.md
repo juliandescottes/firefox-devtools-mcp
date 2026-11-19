@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-19
+
+### Added
+- `list_extensions` is now in the `webextension` module, so the public package has it too. It moved from the Mozilla-internal `privileged` module, uses the WebDriver BiDi `webExtension.moz:listExtensions` command, and no longer needs `MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1`. It does not list hidden extensions, and the `isSystem` filter is removed
+- Snapshots now include elements inside open shadow roots, so elements of web components get a UID. Slotted elements show up at their slot, and their text is taken from what is rendered
+- Clicks, fills, key presses and `evaluate_script` now work on UIDs inside same-origin iframes, and the snapshot no longer drops the elements of such frames
+- Snapshots show the label, type and checked state of form controls. Password values are never included
+- `fill_by_uid` on a select now picks options by value or visible text, and replaces the selection of a multiple select. An unknown or disabled option is an error that lists the available options
+
+### Fixed
+- `fill_by_uid` now replaces the value of a field whose page writes its own value back on focus, for example a controlled React input, instead of appending to it. Filling with an empty string now clears the field
+- Dialogs (`alert`, `confirm`, `prompt`) now stay open until `accept_dialog` or `dismiss_dialog` is called, instead of being closed automatically
+- `accept_dialog` without `promptText` on a prompt now accepts its default value
+
+### Changed
+- The project is renamed to Firefox MCP. The npm package is now `@mozilla/firefox-mcp`, with the `firefox-mcp` bin, and the repository is now https://github.com/mozilla/firefox-mcp. The same build is still published as `@mozilla/firefox-devtools-mcp`, with the `firefox-devtools-mcp` bin, so existing setups keep working. Both packages can be installed globally side by side
+- The Mozilla-internal package is renamed to `@mozilla/firefox-mcp-moz`, with the `firefox-mcp-moz` bin. `@mozilla/firefox-devtools-mcp-moz` is not published anymore
+- The README and the Gemini extension now use `firefox` as the MCP server key, so tool names become `mcp__firefox__navigate_page` instead of `mcp__firefox-devtools__navigate_page` in new setups. Existing manual configs keep their own key. Gemini CLI users get the `mcp_firefox_*` tool names after `gemini extensions update`
+- The Gemini extension is renamed to `firefox-mcp`. Gemini CLI updates it in place and keeps its settings
+- The Claude Desktop bundle is now `firefox-mcp-<version>.mcpb`, shown as "Firefox MCP"
+- Local data moves from `~/.firefox-devtools-mcp` to `~/.firefox-mcp` at startup. The `firefox_devtools_mcp_profile` profile folder becomes `firefox_mcp_profile`, and the profile marker becomes `.firefox-mcp`. The old names are still recognized. `DEBUG=firefox-mcp` enables debug logs, next to `DEBUG=firefox-devtools`
+- Tool calls that could be blocked by open dialogs now return as soon as a dialog opens, with an error that describes the dialog and points to `accept_dialog` and `dismiss_dialog`. While a dialog is open, these tools are refused with the same error, and tools that close or restart Firefox are refused while any tab has a dialog open
+- The dialog tools now use WebDriver BiDi instead of WebDriver Classic
+
 ## [0.10.7] - 2026-10-28
 
 ### Added
