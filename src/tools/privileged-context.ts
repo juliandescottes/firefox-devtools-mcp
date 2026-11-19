@@ -26,7 +26,7 @@ export const listPrivilegedContextsTool = {
 export const selectPrivilegedContextTool = {
   name: 'select_privileged_context',
   description:
-    'Select a privileged browsing context by ID and set WebDriver Classic context to "chrome" . Requires MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1 env var.',
+    'Select a privileged browsing context by ID. Requires MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1 env var.',
   annotations: {
     readOnlyHint: false,
   },
@@ -151,26 +151,11 @@ export const handleSelectPrivilegedContext = defineToolHandler<typeof selectPriv
 
     await assertPrivilegedContext(firefox, contextId);
 
-    const driver = firefox.getDriver();
-    await driver.switchTo().window(contextId);
-
-    try {
-      await driver.setContext('chrome');
-    } catch {
-      return errorResponse(
-        new Error(
-          `Switched to context ${contextId} but failed to set Marionette privileged context. Your Firefox build may not support privileged context or MOZ_REMOTE_ALLOW_SYSTEM_ACCESS is not set.`
-        )
-      );
-    }
-
     // Update tracked context so helper tools (set_firefox_prefs)
     // restore to this context instead of the old content context.
     firefox.setCurrentContextId(contextId);
 
-    return successResponse(
-      `Switched to privileged context: ${contextId} (Marionette context set to privileged)`
-    );
+    return successResponse(`Switched to privileged context: ${contextId}`);
   },
   false
 );

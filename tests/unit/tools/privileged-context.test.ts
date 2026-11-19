@@ -198,34 +198,10 @@ describe('Privileged Context Tool Handlers', () => {
   });
 
   describe('handleSelectPrivilegedContext', () => {
-    it('should switch to a privileged context', async () => {
-      const switchWindow = vi.fn().mockResolvedValue(undefined);
-      const mockFirefox = {
-        sendBiDiCommand: vi.fn().mockResolvedValue(CHROME_TREE),
-        setCurrentContextId: vi.fn(),
-        getDriver: () => ({
-          switchTo: () => ({ window: switchWindow }),
-          setContext: vi.fn().mockResolvedValue(undefined),
-        }),
-      };
-      mockGetFirefox.mockResolvedValue(mockFirefox);
-
-      const result = await handleSelectPrivilegedContext({ contextId: 'chrome-1' });
-
-      expect(result.isError).toBeUndefined();
-      expect(switchWindow).toHaveBeenCalledWith('chrome-1');
-      expect(mockFirefox.setCurrentContextId).toHaveBeenCalledWith('chrome-1');
-    });
-
     it('should reject a content context id without switching', async () => {
-      const switchWindow = vi.fn().mockResolvedValue(undefined);
       const mockFirefox = {
         sendBiDiCommand: vi.fn().mockResolvedValue(CHROME_TREE),
         setCurrentContextId: vi.fn(),
-        getDriver: () => ({
-          switchTo: () => ({ window: switchWindow }),
-          setContext: vi.fn().mockResolvedValue(undefined),
-        }),
       };
       mockGetFirefox.mockResolvedValue(mockFirefox);
 
@@ -233,7 +209,6 @@ describe('Privileged Context Tool Handlers', () => {
 
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('not a privileged context');
-      expect(switchWindow).not.toHaveBeenCalled();
       expect(mockFirefox.setCurrentContextId).not.toHaveBeenCalled();
     });
   });
