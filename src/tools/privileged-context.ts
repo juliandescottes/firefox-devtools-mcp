@@ -151,8 +151,7 @@ export const handleSelectPrivilegedContext = defineToolHandler<typeof selectPriv
 
     await assertPrivilegedContext(firefox, contextId);
 
-    // Update tracked context so helper tools (set_firefox_prefs)
-    // restore to this context instead of the old content context.
+    // Tools without an explicit context, like evaluate_script, now target this context.
     firefox.setCurrentContextId(contextId);
 
     return successResponse(`Switched to privileged context: ${contextId}`);
