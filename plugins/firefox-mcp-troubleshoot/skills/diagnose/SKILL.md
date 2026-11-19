@@ -38,4 +38,4 @@ Since an absent tool list can't be attributed to a single cause from your side, 
 If all checks pass and the plugin still does not work, tell the user to report the issue:
 
 - File a bug on [Bugzilla](https://bugzilla.mozilla.org/enter_bug.cgi?format=__default__&blocked=2026717&product=Developer%20Infrastructure&component=Firefox%20MCP)
-- Or ask in the [#firefox-devtools-mcp Matrix room](https://chat.mozilla.org/#/room/#firefox-devtools-mcp:mozilla.org)
+- Or ask in the [#firefox-mcp Matrix room](https://chat.mozilla.org/#/room/#firefox-mcp:mozilla.org)
