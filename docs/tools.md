@@ -701,7 +701,7 @@ No parameters.
 
 ### `select_privileged_context`
 
-Select a privileged browsing context by ID and set WebDriver Classic context to "chrome" . Requires MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1 env var.
+Select a privileged browsing context by ID. Requires MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1 env var.
 
 Parameters:
 

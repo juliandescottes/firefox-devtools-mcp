@@ -3,11 +3,12 @@
  */
 
 import type { FirefoxLaunchOptions, ConsoleMessage, LogpointResult } from './types.js';
+import type { Capabilities } from 'selenium-webdriver';
 import type { Browser, BrowsingContext, Network } from 'webdriver-bidi-protocol';
 import { FirefoxCore } from './core.js';
-import { BiDiFacade, type FirefoxExtension } from './bidi.js';
+import { BiDiFacade, ReadinessState, type FirefoxExtension } from './bidi.js';
 import { listExtensions, type ListExtensionsFilters } from './webextension.js';
-import { logDebug } from '../utils/logger.js';
+import { log, logDebug } from '../utils/logger.js';
 import {
   ConsoleEvents,
   NetworkEvents,
@@ -65,7 +66,7 @@ export class FirefoxClient {
   }
 
   private getContext(): BrowsingContext.BrowsingContext {
-    const context = this.core.getCurrentContextId();
+    const context = this.getCurrentContextId();
     if (!context) {
       throw new Error('No active browsing context');
     }
@@ -76,11 +77,7 @@ export class FirefoxClient {
    * Connect and initialize all modules
    */
   async connect(): Promise<void> {
-    await this.core.connect();
-
-    const driver = this.core.getDriver();
-
-    this.bidi = new BiDiFacade(driver);
+    this.bidi = new BiDiFacade(await this.core.connect());
 
     // Initialize snapshot manager first
     this.snapshot = new SnapshotManager(this.bidi);
@@ -137,17 +134,22 @@ export class FirefoxClient {
         this.snapshot!.resolveUidToContextElement(context, uid)
     );
 
-    this.pages = new PageManagement(
-      driver,
-      () => this.core.getCurrentContextId(),
-      (id: string) => this.core.setCurrentContextId(id),
+    this.pages = new PageManagement(this.bidi);
+
+    this.cache = new CacheManagement(
+      () => this.getCurrentContextId(),
       (method, params, options) => this.getBidi().sendCommand(method, params, options)
     );
 
-    this.cache = new CacheManagement(
-      () => this.core.getCurrentContextId(),
-      (method, params, options) => this.getBidi().sendCommand(method, params, options)
-    );
+    await this.pages.selectInitialContext();
+
+    // Navigate if startUrl provided (skip for connectExisting to not disrupt the user's browsing)
+    const { startUrl, connectExisting } = this.core.getOptions();
+    if (startUrl && !connectExisting) {
+      await this.pages.navigate(startUrl, ReadinessState.Complete);
+    }
+
+    log('Firefox DevTools ready');
   }
 
   // ============================================================================
@@ -320,7 +322,7 @@ export class FirefoxClient {
     return this.pages.getTabs();
   }
 
-  getSelectedTabIdx(): number {
+  getSelectedTabIdx(): number | null {
     if (!this.pages) {
       throw new Error('Not connected');
     }
@@ -522,27 +524,39 @@ export class FirefoxClient {
     this.getBidi().sendCommand(method, params, options);
 
   /**
-   * Get WebDriver instance (for advanced operations)
+   * Get the capabilities of the WebDriver session
    * @internal
    */
-  getDriver(): any {
-    return this.core.getDriver();
+  getCapabilities(): Capabilities {
+    return this.core.getCapabilities();
   }
 
   /**
-   * Get current browsing context ID (for advanced operations)
+   * Get current browsing context ID
    * @internal
    */
   getCurrentContextId(): string | null {
-    return this.core.getCurrentContextId();
+    return this.pages?.getCurrentContextId() ?? null;
   }
 
   /**
-   * Update current browsing context ID
-   * @internal
+   * Throw unless the id is a privileged (chrome) context
    */
-  setCurrentContextId(contextId: string): void {
-    this.core.setCurrentContextId(contextId);
+  async assertPrivilegedContext(contextId: string): Promise<void> {
+    if (!this.pages) {
+      throw new Error('Not connected');
+    }
+    await this.pages.assertPrivilegedContext(contextId);
+  }
+
+  /**
+   * Make a privileged (chrome) context the current context
+   */
+  async selectPrivilegedContext(contextId: string): Promise<void> {
+    if (!this.pages) {
+      throw new Error('Not connected');
+    }
+    await this.pages.selectPrivilegedContext(contextId);
   }
 
   /**
@@ -551,7 +565,10 @@ export class FirefoxClient {
    * tab or opening a new one. Returns false if the connection is unrecoverable.
    */
   async ensureConnected(): Promise<boolean> {
-    return await this.core.ensureConnected();
+    if (!this.pages || !this.core.isConnected()) {
+      return false;
+    }
+    return await this.pages.ensureCurrentContext();
   }
 
   /**

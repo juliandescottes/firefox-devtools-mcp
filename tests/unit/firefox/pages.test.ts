@@ -63,32 +63,19 @@ describe('isReadinessState', () => {
 // -- PageManagement -----------------------------------------------------------
 
 describe('PageManagement', () => {
-  function createMocks() {
-    // Any driver method call should fail — navigate must use BiDi, not driver
-    const driver = new Proxy(
-      {},
-      {
-        get: () => {
-          throw new Error('Unexpected driver call — navigation must use BiDi');
-        },
-      }
+  async function createMocks() {
+    const sendBiDiCommand = vi.fn(async (method: string) =>
+      method === 'browsingContext.getTree' ? { contexts: [{ context: 'ctx-1' }] } : {}
     );
-    const getCurrentContextId = vi.fn().mockReturnValue('ctx-1');
-    const setCurrentContextId = vi.fn();
-    const sendBiDiCommand = vi.fn().mockResolvedValue({});
 
-    const pages = new PageManagement(
-      driver as any,
-      getCurrentContextId,
-      setCurrentContextId,
-      sendBiDiCommand
-    );
+    const pages = new PageManagement({ sendCommand: sendBiDiCommand } as any);
+    await pages.selectInitialContext();
     return { pages, sendBiDiCommand };
   }
 
   describe('navigate', () => {
     it('uses BiDi with wait:interactive for common URL schemes', async () => {
-      const { pages, sendBiDiCommand } = createMocks();
+      const { pages, sendBiDiCommand } = await createMocks();
 
       await pages.navigate(HTTPS_URL);
       expect(sendBiDiCommand).toHaveBeenCalledWith('browsingContext.navigate', {
@@ -127,7 +114,7 @@ describe('PageManagement', () => {
     });
 
     it('uses BiDi with wait:none for uncommon URL schemes', async () => {
-      const { pages, sendBiDiCommand } = createMocks();
+      const { pages, sendBiDiCommand } = await createMocks();
 
       await pages.navigate(MOZ_EXT_URL);
       expect(sendBiDiCommand).toHaveBeenCalledWith('browsingContext.navigate', {
@@ -152,7 +139,7 @@ describe('PageManagement', () => {
     });
 
     it('honours an explicit wait for common schemes', async () => {
-      const { pages, sendBiDiCommand } = createMocks();
+      const { pages, sendBiDiCommand } = await createMocks();
 
       await pages.navigate(HTTPS_URL, ReadinessState.Complete);
       expect(sendBiDiCommand).toHaveBeenCalledWith('browsingContext.navigate', {
@@ -163,7 +150,7 @@ describe('PageManagement', () => {
     });
 
     it('honours an explicit wait for uncommon schemes rather than downgrading it', async () => {
-      const { pages, sendBiDiCommand } = createMocks();
+      const { pages, sendBiDiCommand } = await createMocks();
 
       await pages.navigate(MOZ_EXT_URL, ReadinessState.Complete);
       expect(sendBiDiCommand).toHaveBeenCalledWith('browsingContext.navigate', {
@@ -181,7 +168,7 @@ describe('PageManagement', () => {
     });
 
     it('allows an explicit wait to opt out of waiting on a common scheme', async () => {
-      const { pages, sendBiDiCommand } = createMocks();
+      const { pages, sendBiDiCommand } = await createMocks();
 
       await pages.navigate(HTTPS_URL, ReadinessState.None);
       expect(sendBiDiCommand).toHaveBeenCalledWith('browsingContext.navigate', {
@@ -192,78 +179,13 @@ describe('PageManagement', () => {
     });
 
     it('keeps the scheme-based default when no wait is given', async () => {
-      const { pages, sendBiDiCommand } = createMocks();
+      const { pages, sendBiDiCommand } = await createMocks();
 
       await pages.navigate(HTTPS_URL, undefined);
       expect(sendBiDiCommand).toHaveBeenCalledWith('browsingContext.navigate', {
         context: 'ctx-1',
         url: HTTPS_URL,
         wait: 'interactive',
-      });
-    });
-  });
-
-  describe('createNewPage', () => {
-    it('uses BiDi navigate', async () => {
-      // createNewPage needs real driver methods for switchTo/getWindowHandle
-      const switchToMock = vi
-        .fn()
-        .mockReturnValue({ newWindow: vi.fn().mockResolvedValue(undefined) });
-      const driver = {
-        switchTo: switchToMock,
-        getWindowHandle: vi.fn().mockResolvedValue('handle-2'),
-      } as any;
-
-      const getCurrentContextId = vi.fn().mockReturnValue('handle-2');
-      const setCurrentContextId = vi.fn();
-      const sendBiDiCommand = vi.fn().mockResolvedValue({});
-
-      const pages = new PageManagement(
-        driver,
-        getCurrentContextId,
-        setCurrentContextId,
-        sendBiDiCommand
-      );
-
-      // wait: interactive
-      await pages.createNewPage(HTTPS_URL);
-      expect(sendBiDiCommand).toHaveBeenCalledWith('browsingContext.navigate', {
-        context: 'handle-2',
-        url: HTTPS_URL,
-        wait: 'interactive',
-      });
-
-      // wait: none
-      await pages.createNewPage(MOZ_EXT_URL);
-      expect(sendBiDiCommand).toHaveBeenCalledWith('browsingContext.navigate', {
-        context: 'handle-2',
-        url: MOZ_EXT_URL,
-        wait: 'none',
-      });
-    });
-
-    it('forwards an explicit wait override to navigate', async () => {
-      const switchToMock = vi
-        .fn()
-        .mockReturnValue({ newWindow: vi.fn().mockResolvedValue(undefined) });
-      const driver = {
-        switchTo: switchToMock,
-        getWindowHandle: vi.fn().mockResolvedValue('handle-2'),
-      } as any;
-
-      const sendBiDiCommand = vi.fn().mockResolvedValue({});
-      const pages = new PageManagement(
-        driver,
-        vi.fn().mockReturnValue('handle-2'),
-        vi.fn(),
-        sendBiDiCommand
-      );
-
-      await pages.createNewPage(HTTPS_URL, ReadinessState.Complete);
-      expect(sendBiDiCommand).toHaveBeenCalledWith('browsingContext.navigate', {
-        context: 'handle-2',
-        url: HTTPS_URL,
-        wait: 'complete',
       });
     });
   });
@@ -275,25 +197,12 @@ describe('PageManagement', () => {
       { context: 'tab-2', url: '' },
     ];
 
-    function createTabMocks(
-      titles: Record<string, string>,
-      { tree = TREE, currentId = 'tab-2' }: { tree?: typeof TREE; currentId?: string } = {}
-    ) {
-      let current = currentId;
-      const window = vi.fn().mockResolvedValue(undefined);
-      const driver = {
-        switchTo: vi.fn().mockReturnValue({ window, newWindow: vi.fn() }),
-        close: vi.fn().mockResolvedValue(undefined),
-        getWindowHandle: vi.fn().mockResolvedValue('tab-new'),
-      } as any;
-      const setCurrentContextId = vi.fn((id: string) => {
-        current = id;
-      });
+    async function createTabMocks(titles: Record<string, string>) {
       const sendBiDiCommand = vi.fn(async (method: string, params: any) => {
         if (method === 'browsingContext.getTree') {
-          return { contexts: tree };
+          return { contexts: TREE };
         }
-        if (method === 'browsingContext.navigate') {
+        if (method === 'browsingContext.activate') {
           return {};
         }
         const title = titles[params.target.context];
@@ -302,21 +211,18 @@ describe('PageManagement', () => {
         }
         return { type: 'success', result: { type: 'string', value: title } };
       });
-      const pages = new PageManagement(
-        driver,
-        () => current,
-        setCurrentContextId,
-        sendBiDiCommand as any
-      );
-      return { pages, driver, window, setCurrentContextId, sendBiDiCommand };
+      const pages = new PageManagement({ sendCommand: sendBiDiCommand } as any);
+      await pages.refreshTabs();
+      await pages.selectTab(2);
+      sendBiDiCommand.mockClear();
+      return { pages, sendBiDiCommand };
     }
 
-    it('refreshTabs reads tabs from the BiDi tree without switching tabs', async () => {
-      const { pages, driver, sendBiDiCommand } = createTabMocks({ 'tab-1': 'A', 'tab-2': '' });
+    it('refreshTabs reads tabs from the BiDi tree', async () => {
+      const { pages, sendBiDiCommand } = await createTabMocks({ 'tab-1': 'A', 'tab-2': '' });
 
       await pages.refreshTabs();
 
-      expect(driver.switchTo).not.toHaveBeenCalled();
       expect(sendBiDiCommand).toHaveBeenCalledWith('browsingContext.getTree', { maxDepth: 0 });
       expect(pages.getTabs()).toEqual([
         { actor: 'tab-3', title: '(unknown)', url: 'https://example.com/c' },
@@ -326,16 +232,8 @@ describe('PageManagement', () => {
       expect(pages.getSelectedTabIdx()).toBe(2);
     });
 
-    it('refreshTabs selects the first tab when the current context is not in the tree', async () => {
-      const { pages } = createTabMocks({}, { currentId: 'chrome-window' });
-
-      await pages.refreshTabs();
-
-      expect(pages.getSelectedTabIdx()).toBe(0);
-    });
-
     it('refreshTabs falls back to the current tab when the tree cannot be read', async () => {
-      const { pages, sendBiDiCommand } = createTabMocks({});
+      const { pages, sendBiDiCommand } = await createTabMocks({});
       sendBiDiCommand.mockRejectedValueOnce(new Error('unsupported operation'));
 
       await pages.refreshTabs();
@@ -343,82 +241,37 @@ describe('PageManagement', () => {
       expect(pages.getTabs()).toEqual([{ actor: 'tab-2', title: 'Current Tab', url: '' }]);
       expect(pages.getSelectedTabIdx()).toBe(0);
     });
+  });
 
-    it('createNewPage returns the index of the new tab in the tree order', async () => {
-      const { pages, setCurrentContextId } = createTabMocks(
-        {},
-        {
-          tree: [
-            { context: 'tab-1', url: 'https://example.com/a' },
-            { context: 'tab-new', url: HTTPS_URL },
-            { context: 'tab-2', url: 'https://example.com/b' },
-          ],
+  describe('ensureCurrentContext', () => {
+    it('opens a new tab when all tabs have been closed', async () => {
+      let tree = [{ context: 'tab-1', url: 'https://example.com/a' }];
+      const sendBiDiCommand = vi.fn(async (method: string) => {
+        if (method === 'browsingContext.getTree') {
+          return { contexts: tree };
         }
+        if (method === 'browsingContext.create') {
+          tree = [{ context: 'new-tab', url: 'about:blank' }];
+          return { context: 'new-tab' };
+        }
+        return { type: 'success', result: { type: 'string', value: '' } };
+      });
+      const pages = new PageManagement({ sendCommand: sendBiDiCommand } as any);
+      await pages.selectInitialContext();
+      tree = [];
+      sendBiDiCommand.mockClear();
+
+      const connected = await pages.ensureCurrentContext();
+
+      expect(connected).toBe(true);
+      expect(sendBiDiCommand).toHaveBeenCalledWith('browsingContext.create', { type: 'tab' });
+      expect(sendBiDiCommand).not.toHaveBeenCalledWith(
+        'browsingContext.activate',
+        expect.anything()
       );
-
-      const index = await pages.createNewPage(HTTPS_URL);
-
-      expect(setCurrentContextId).toHaveBeenCalledWith('tab-new');
-      expect(index).toBe(1);
-      expect(pages.getTabs()[index]?.actor).toBe('tab-new');
-    });
-
-    it('selectTab switches to the cached tab at that index', async () => {
-      const { pages, window, setCurrentContextId } = createTabMocks({});
-      await pages.refreshTabs();
-
-      await pages.selectTab(1);
-
-      expect(window).toHaveBeenCalledWith('tab-1');
-      expect(setCurrentContextId).toHaveBeenCalledWith('tab-1');
-      expect(pages.getSelectedTabIdx()).toBe(1);
-    });
-
-    it('closeTab closes the cached tab at that index and selects the first remaining one', async () => {
-      const { pages, driver, window, setCurrentContextId } = createTabMocks({});
-      await pages.refreshTabs();
-
-      await pages.closeTab(0);
-
-      expect(window).toHaveBeenNthCalledWith(1, 'tab-3');
-      expect(driver.close).toHaveBeenCalledOnce();
-      expect(window).toHaveBeenNthCalledWith(2, 'tab-1');
-      expect(setCurrentContextId).toHaveBeenCalledWith('tab-1');
-      expect(pages.getTabs().map((tab) => tab.actor)).toEqual(['tab-1', 'tab-2']);
-    });
-
-    it('closeTab on the current tab moves the selection to a remaining tab', async () => {
-      const { pages, driver, window } = createTabMocks({});
-      await pages.refreshTabs();
-
-      await pages.closeTab(2);
-
-      expect(window).toHaveBeenNthCalledWith(1, 'tab-2');
-      expect(driver.close).toHaveBeenCalledOnce();
-      expect(window).toHaveBeenNthCalledWith(2, 'tab-3');
+      expect(pages.getCurrentContextId()).toBe('new-tab');
+      expect(pages.getTabs().map((tab) => tab.actor)).toEqual(['new-tab']);
       expect(pages.getSelectedTabIdx()).toBe(0);
-      expect(pages.getTabs().map((tab) => tab.actor)).toEqual(['tab-3', 'tab-1']);
-    });
-
-    it('ignores indexes outside the cached list', async () => {
-      const { pages, driver } = createTabMocks({});
-      await pages.refreshTabs();
-
-      await pages.selectTab(3);
-      await pages.closeTab(-1);
-
-      expect(driver.switchTo).not.toHaveBeenCalled();
-      expect(driver.close).not.toHaveBeenCalled();
-    });
-
-    it('does nothing when the tab list was never refreshed', async () => {
-      const { pages, driver } = createTabMocks({});
-
-      await pages.selectTab(0);
-      await pages.closeTab(0);
-
-      expect(driver.switchTo).not.toHaveBeenCalled();
-      expect(driver.close).not.toHaveBeenCalled();
     });
   });
 });

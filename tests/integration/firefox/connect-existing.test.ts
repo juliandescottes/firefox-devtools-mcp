@@ -21,7 +21,7 @@ describe('Connect Existing Integration Tests', () => {
   beforeAll(async () => {
     // This launched Firefox already holds a WebDriver session.
     firefox = await createTestFirefox();
-    const capabilities = await firefox.getDriver().getCapabilities();
+    const capabilities = firefox.getCapabilities();
     const profile = capabilities.get('moz:profile') as string;
     marionettePort = Number(readFileSync(join(profile, 'MarionetteActivePort'), 'utf-8').trim());
   });
@@ -139,6 +139,25 @@ describe('Connect Existing Viewport and Dialog Tests', () => {
     const second = await createTestFirefox({ connectExisting: true, marionettePort });
     try {
       expect(await second.evaluate('[innerWidth, innerHeight]')).toEqual(originalSize);
+    } finally {
+      await closeFirefox(second);
+    }
+  }, 60000);
+
+  it('should select the visible tab', async () => {
+    const first = await createTestFirefox({ connectExisting: true, marionettePort });
+    try {
+      await first.createNewPage(fixtureUrl('form.html'));
+    } finally {
+      await closeFirefox(first);
+    }
+
+    const second = await createTestFirefox({ connectExisting: true, marionettePort });
+    try {
+      expect(await second.evaluate('location.href')).toContain('form.html');
+      await second.refreshTabs();
+      expect(second.getSelectedTabIdx()).toBe(1);
+      await second.closeTab(1);
     } finally {
       await closeFirefox(second);
     }

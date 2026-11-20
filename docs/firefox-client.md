@@ -22,13 +22,13 @@ Used for tab management, JavaScript evaluation, console events, network monitori
 
 ## Initialization Order
 
-Events must be subscribed before navigation to capture early messages:
+`FirefoxClient.connect()` subscribes to events before navigating, so early messages are captured:
 
 ```typescript
-this.driver = await new Builder().forBrowser(Browser.FIREFOX).setFirefoxOptions(opts).build();
-this.currentContextId = await this.driver.getWindowHandle();
-await bidi.subscribe('log.entryAdded', this.currentContextId, callback); // before get()
-await this.driver.get(startUrl);
+this.bidi = new BiDiFacade(await this.core.connect()); // WebDriver session with BiDi
+// ... create modules and subscribe to console, network and dialog events
+await this.pages.selectInitialContext();
+await this.pages.navigate(startUrl); // skipped in connect-existing mode
 ```
 
 ## Configuration

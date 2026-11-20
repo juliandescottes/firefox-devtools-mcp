@@ -228,15 +228,15 @@ export const handleNavigatePage = defineToolHandler<typeof navigatePageTool>(
     await firefox.refreshTabs();
     const tabs = firefox.getTabs();
     const selectedIdx = firefox.getSelectedTabIdx();
-    const page = tabs[selectedIdx];
 
-    if (!page) {
+    if (selectedIdx !== null && !tabs[selectedIdx]) {
       throw new Error('No page selected');
     }
 
     await firefox.navigate(url, waitFor);
 
-    return successResponse(`[${selectedIdx}] → ${url}${waitSuffix(waitFor)}`);
+    const target = selectedIdx === null ? 'privileged context' : `[${selectedIdx}]`;
+    return successResponse(`${target} → ${url}${waitSuffix(waitFor)}`);
   }
 );
 

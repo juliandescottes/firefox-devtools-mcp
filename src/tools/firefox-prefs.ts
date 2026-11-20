@@ -18,7 +18,7 @@ async function getPrivilegedContext(firefox: FirefoxClient) {
     // Get privileged ("chrome") contexts
     const result = await firefox.sendBiDiCommand('browsingContext.getTree', {
       'moz:scope': 'chrome',
-      maxDepth: 1,
+      maxDepth: 0,
     });
     contexts = result.contexts || [];
   } catch (error) {

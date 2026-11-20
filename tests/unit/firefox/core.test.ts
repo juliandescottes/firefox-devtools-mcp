@@ -18,124 +18,10 @@ describe('FirefoxCore', () => {
     });
   });
 
-  describe('getCurrentContextId', () => {
-    it('should return null when not connected', () => {
+  describe('isConnected', () => {
+    it('should return false when not connected', () => {
       const core = new FirefoxCore({ headless: true });
-      expect(core.getCurrentContextId()).toBe(null);
-    });
-  });
-
-  describe('setCurrentContextId', () => {
-    it('should set context ID', () => {
-      const core = new FirefoxCore({ headless: true });
-      const contextId = 'test-context-123';
-
-      core.setCurrentContextId(contextId);
-      expect(core.getCurrentContextId()).toBe(contextId);
-    });
-
-    it('should update context ID', () => {
-      const core = new FirefoxCore({ headless: true });
-
-      core.setCurrentContextId('context-1');
-      expect(core.getCurrentContextId()).toBe('context-1');
-
-      core.setCurrentContextId('context-2');
-      expect(core.getCurrentContextId()).toBe('context-2');
-    });
-  });
-
-  describe('getDriver', () => {
-    it('should throw error when not connected', () => {
-      const core = new FirefoxCore({ headless: true });
-      expect(() => core.getDriver()).toThrow('Driver not connected');
-    });
-  });
-
-  describe('ensureConnected', () => {
-    it('should return false when driver is null', async () => {
-      const core = new FirefoxCore({ headless: true });
-      const connected = await core.ensureConnected();
-      expect(connected).toBe(false);
-    });
-
-    it('should return true when the current tab is still available', async () => {
-      const getWindowHandle = vi.fn().mockResolvedValue('current-tab');
-      const getAllWindowHandles = vi.fn();
-      const core = new FirefoxCore({ headless: true });
-      (core as any).driver = { getWindowHandle, getAllWindowHandles };
-
-      const connected = await core.ensureConnected();
-
-      expect(connected).toBe(true);
-      expect(getAllWindowHandles).not.toHaveBeenCalled();
-    });
-
-    it('should switch to the first available tab when the current tab is gone', async () => {
-      const window = vi.fn().mockResolvedValue(undefined);
-      const newWindow = vi.fn();
-      const core = new FirefoxCore({ headless: true });
-      (core as any).driver = {
-        getWindowHandle: vi.fn().mockRejectedValue(new Error('no such window')),
-        getAllWindowHandles: vi.fn().mockResolvedValue(['tab-1', 'tab-2']),
-        switchTo: vi.fn().mockReturnValue({ window, newWindow }),
-      };
-
-      const connected = await core.ensureConnected();
-
-      expect(connected).toBe(true);
-      expect(window).toHaveBeenCalledWith('tab-1');
-      expect(newWindow).not.toHaveBeenCalled();
-      expect(core.getCurrentContextId()).toBe('tab-1');
-    });
-
-    it('should open a new tab when all tabs have been closed', async () => {
-      const window = vi.fn();
-      const newWindow = vi.fn().mockResolvedValue(undefined);
-      const core = new FirefoxCore({ headless: true });
-      (core as any).driver = {
-        getWindowHandle: vi
-          .fn()
-          .mockRejectedValueOnce(new Error('no such window'))
-          .mockResolvedValueOnce('new-tab'),
-        getAllWindowHandles: vi.fn().mockResolvedValue([]),
-        switchTo: vi.fn().mockReturnValue({ window, newWindow }),
-      };
-
-      const connected = await core.ensureConnected();
-
-      expect(connected).toBe(true);
-      expect(newWindow).toHaveBeenCalledWith('tab');
-      expect(window).not.toHaveBeenCalled();
-      expect(core.getCurrentContextId()).toBe('new-tab');
-    });
-
-    it('should return false when listing tabs fails', async () => {
-      const core = new FirefoxCore({ headless: true });
-      (core as any).driver = {
-        getWindowHandle: vi.fn().mockRejectedValue(new Error('no such window')),
-        getAllWindowHandles: vi.fn().mockRejectedValue(new Error('not responsive')),
-      };
-
-      const connected = await core.ensureConnected();
-
-      expect(connected).toBe(false);
-    });
-
-    it('should return false when switching to another tab fails', async () => {
-      const core = new FirefoxCore({ headless: true });
-      (core as any).driver = {
-        getWindowHandle: vi.fn().mockRejectedValue(new Error('no such window')),
-        getAllWindowHandles: vi.fn().mockResolvedValue(['tab-1']),
-        switchTo: vi.fn().mockReturnValue({
-          window: vi.fn().mockRejectedValue(new Error('not responsive')),
-          newWindow: vi.fn(),
-        }),
-      };
-
-      const connected = await core.ensureConnected();
-
-      expect(connected).toBe(false);
+      expect(core.isConnected()).toBe(false);
     });
   });
 
@@ -145,14 +31,12 @@ describe('FirefoxCore', () => {
       const onQuit = vi.fn().mockResolvedValue(undefined);
       const core = new FirefoxCore({ headless: true });
       (core as any).driver = { quit, onQuit_: onQuit };
-      core.setCurrentContextId('ctx-1');
 
       await core.close();
 
       expect(quit).toHaveBeenCalledTimes(1);
       expect(onQuit).not.toHaveBeenCalled();
-      expect(core.getCurrentContextId()).toBe(null);
-      expect(() => core.getDriver()).toThrow('Driver not connected');
+      expect(core.isConnected()).toBe(false);
     });
 
     it('should call onQuit_() when quit() times out', async () => {
@@ -164,7 +48,6 @@ describe('FirefoxCore', () => {
           quit: vi.fn().mockReturnValue(new Promise(() => {})),
           onQuit_: onQuit,
         };
-        core.setCurrentContextId('ctx-1');
 
         const closePromise = core.close();
 
@@ -184,7 +67,6 @@ describe('FirefoxCore', () => {
         quit: vi.fn().mockRejectedValue(new Error('session not found')),
         onQuit_: onQuit,
       };
-      core.setCurrentContextId('ctx-1');
 
       await core.close();
 
@@ -196,7 +78,6 @@ describe('FirefoxCore', () => {
       const onQuit = vi.fn().mockResolvedValue(undefined);
       const core = new FirefoxCore({ headless: true });
       (core as any).driver = { quit, onQuit_: onQuit };
-      core.setCurrentContextId('ctx-1');
 
       await core.close();
       await core.close();
@@ -237,7 +118,6 @@ describe('FirefoxCore', () => {
       };
       const core = new FirefoxCore({ headless: true });
       (core as any).driver = webdriver;
-      core.setCurrentContextId('ctx-1');
 
       await core.close();
 
@@ -252,7 +132,6 @@ describe('FirefoxCore', () => {
         (core as any).driver = {
           quit: vi.fn().mockResolvedValue(undefined),
         };
-        core.setCurrentContextId('ctx-1');
         (core as any).logFilePath = '/tmp/test.log';
         (core as any).profileWarning = 'test warning';
         (core as any).logFileFd = 42;
@@ -265,7 +144,6 @@ describe('FirefoxCore', () => {
 
         await core.close();
 
-        expect(core.getCurrentContextId()).toBe(null);
         expect((core as any).logFilePath).toBeUndefined();
         expect((core as any).profileWarning).toBeNull();
         expect((core as any).logFileFd).toBeUndefined();
@@ -352,7 +230,6 @@ describe('FirefoxCore connect() profile handling', () => {
         setFirefoxService = vi.fn().mockReturnThis();
         build = vi.fn().mockResolvedValue({
           getCapabilities: vi.fn(() => ({ get: vi.fn(() => '123.4') })),
-          getWindowHandle: vi.fn().mockResolvedValue('mock-context-id'),
           get: vi.fn().mockResolvedValue(undefined),
         });
       },

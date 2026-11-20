@@ -224,13 +224,13 @@ const BINARY_NOT_FOUND_HINT =
   '--firefox-path';
 
 export class FirefoxCore {
-  private currentContextId: string | null = null;
   private detectedBinaryPath: string | undefined;
   private driver: WebDriver | null = null;
   private geckodriverProcess: GeckodriverProcess = null;
   private closed = false;
   private sessionPending = false;
   private firefoxVersion: string | null = null;
+  private capabilities: Capabilities | null = null;
   private logFileFd: number | undefined;
   private logFilePath: string | undefined;
   private originalEnv: Record<string, string | undefined> = {};
@@ -241,7 +241,7 @@ export class FirefoxCore {
   /**
    * Launch Firefox (or connect to an existing instance) and establish BiDi connection
    */
-  async connect(): Promise<void> {
+  async connect(): Promise<WebDriver> {
     const isAndroid = this.options.androidDevice !== undefined;
     const androidPackage = this.options.androidPackage ?? 'org.mozilla.firefox';
     let resolvedMarionettePort: number | undefined;
@@ -517,25 +517,21 @@ export class FirefoxCore {
     );
 
     // Retrieve the Firefox version from the returned capabilities.
-    const driverCapabilities = await this.driver.getCapabilities();
-    this.firefoxVersion = (driverCapabilities.get('browserVersion') as string) ?? null;
+    this.capabilities = await this.driver.getCapabilities();
+    this.firefoxVersion = (this.capabilities.get('browserVersion') as string) ?? null;
     logDebug(`Browser version: ${this.firefoxVersion}`);
 
     // In connect-existing mode, geckodriver can attach to a Firefox that was
     // started with --marionette but without --remote-debugging-port. Marionette
     // works, but the session has no BiDi endpoint, so most tools would later
     // fail with confusing errors. Detect this early with an actionable message.
-    if (this.options.connectExisting && !driverCapabilities.get('webSocketUrl')) {
+    if (this.options.connectExisting && !this.capabilities.get('webSocketUrl')) {
       throw new Error(
         'Connected to Firefox via Marionette, but the session has no WebDriver BiDi endpoint ' +
           '(missing webSocketUrl capability). Restart Firefox with both flags: ' +
           'firefox --marionette --remote-debugging-port.'
       );
     }
-
-    // Remember current window handle (browsing context)
-    this.currentContextId = await this.driver.getWindowHandle();
-    logDebug(`Browsing context ID: ${this.currentContextId}`);
 
     if (resolvedMarionettePort !== undefined) {
       this.options = {
@@ -544,13 +540,7 @@ export class FirefoxCore {
       };
     }
 
-    // Navigate if startUrl provided (skip for connectExisting to not disrupt the user's browsing)
-    if (this.options.startUrl && !this.options.connectExisting) {
-      await this.driver.get(this.options.startUrl);
-      logDebug(`Navigated to: ${this.options.startUrl}`);
-    }
-
-    log('Firefox DevTools ready');
+    return this.driver;
   }
 
   /**
@@ -590,71 +580,18 @@ export class FirefoxCore {
     }
   }
 
+  isConnected(): boolean {
+    return this.driver !== null;
+  }
+
   /**
-   * Get driver instance (throw if not connected)
+   * Get the capabilities of the current session
    */
-  getDriver(): WebDriver {
-    if (!this.driver) {
+  getCapabilities(): Capabilities {
+    if (!this.driver || !this.capabilities) {
       throw new Error('Driver not connected');
     }
-    return this.driver;
-  }
-
-  /**
-   * Ensure Firefox is still connected with a usable tab selected.
-   * If the previously selected tab is gone, recovers by switching to another
-   * tab or opening a new one. Returns false if the connection is unrecoverable.
-   */
-  async ensureConnected(): Promise<boolean> {
-    if (!this.driver) {
-      return false;
-    }
-
-    try {
-      await this.driver.getWindowHandle();
-      return true;
-    } catch (e) {
-      logDebug('Previously selected tab is no longer available', e);
-    }
-
-    try {
-      const tabs = await this.driver.getAllWindowHandles();
-      if (tabs.length) {
-        logDebug('Switching to the first tab');
-        for (const tab of tabs) {
-          if (typeof tab === 'string') {
-            await this.driver.switchTo().window(tab);
-            this.currentContextId = tab;
-            return true;
-          }
-        }
-      } else {
-        logDebug('All tabs have been closed, switching to a new tab');
-        await this.driver.switchTo().newWindow('tab');
-        this.currentContextId = await this.driver.getWindowHandle();
-        return true;
-      }
-    } catch (e) {
-      logDebug('Connection check failed: Firefox is not responsive', e);
-      return false;
-    }
-
-    logDebug('Unable to select a tab to the connected Firefox instance, restarting');
-    return false;
-  }
-
-  /**
-   * Get current browsing context ID
-   */
-  getCurrentContextId(): string | null {
-    return this.currentContextId;
-  }
-
-  /**
-   * Update current context ID (used by page management)
-   */
-  setCurrentContextId(contextId: string): void {
-    this.currentContextId = contextId;
+    return this.capabilities;
   }
 
   /**
@@ -712,7 +649,7 @@ export class FirefoxCore {
     // Null to prevent re-entrancy
     this.driver = null;
     this.geckodriverProcess = null;
-    this.currentContextId = null;
+    this.capabilities = null;
     this.logFilePath = undefined;
     this.profileWarning = null;
 

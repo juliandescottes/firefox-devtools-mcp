@@ -3,7 +3,7 @@
  * Tests with real Firefox browser in headless mode
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, assert, beforeAll, afterAll } from 'vitest';
 import {
   createTestFirefox,
   closeFirefox,
@@ -12,6 +12,9 @@ import {
   waitForPageLoad,
   fixtureUrl,
 } from '../../helpers/firefox.js';
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { CreateType, ReadinessState } from '@/firefox/bidi.js';
 import type { FirefoxClient } from '@/firefox/index.js';
 import type { SnapshotNode } from '@/firefox/snapshot/types.js';
 
@@ -36,7 +39,7 @@ describe('Tab Management Integration Tests', () => {
     expect(tabs).toBeDefined();
     expect(Array.isArray(tabs)).toBe(true);
     expect(tabs.length).toBeGreaterThan(0);
-    expect(tabs[firefox.getSelectedTabIdx()]).toMatchObject({
+    expect(tabs[firefox.getSelectedTabIdx()!]).toMatchObject({
       title: 'Simple Test Page',
       url: fixturePath,
     });
@@ -135,7 +138,7 @@ describe('Tab Management Integration Tests', () => {
     expect(formElements.length).toBeGreaterThan(0);
 
     // Switch to tab 1 (simple page)
-    await firefox.selectTab(tab1Index);
+    await firefox.selectTab(tab1Index!);
     await waitForPageLoad();
 
     // Wait for button to appear in tab 1
@@ -206,5 +209,237 @@ describe('Tab titles with a busy tab', () => {
       { actor: expect.any(String), title: '(unknown)', url: busyUrl },
     ]);
     expect(elapsed).toBeLessThan(3000);
+  }, 20000);
+});
+
+describe('Tab selection and recovery', () => {
+  let firefox: FirefoxClient;
+
+  beforeAll(async () => {
+    firefox = await createTestFirefox();
+  });
+
+  afterAll(async () => {
+    await closeFirefox(firefox);
+  });
+
+  async function openTabs(count: number): Promise<string[]> {
+    await firefox.refreshTabs();
+    for (const tab of firefox.getTabs().slice(1).reverse()) {
+      await firefox.closeTab(firefox.getTabs().indexOf(tab));
+    }
+    await firefox.selectTab(0);
+    await firefox.navigate(fixtureUrl('simple.html'));
+    for (let i = 1; i < count; i++) {
+      await firefox.createNewPage(fixtureUrl('simple.html'));
+    }
+    await firefox.refreshTabs();
+    return firefox.getTabs().map((tab) => tab.actor);
+  }
+
+  async function visibility(context: string): Promise<unknown> {
+    return await firefox.getBidi().evaluate(context, 'document.visibilityState');
+  }
+
+  it('should show the selected tab', async () => {
+    const [first, second] = await openTabs(2);
+    expect(await visibility(second)).toBe('visible');
+
+    await firefox.selectTab(0);
+
+    expect(firefox.getCurrentContextId()).toBe(first);
+    expect(await visibility(first)).toBe('visible');
+    expect(await visibility(second)).toBe('hidden');
+  }, 20000);
+
+  it('should keep the selection when closing another tab', async () => {
+    const [, second, third] = await openTabs(3);
+    await firefox.selectTab(1);
+
+    await firefox.closeTab(2);
+
+    expect(firefox.getCurrentContextId()).toBe(second);
+    expect(firefox.getSelectedTabIdx()).toBe(1);
+    await firefox.refreshTabs();
+    expect(firefox.getTabs().map((tab) => tab.actor)).not.toContain(third);
+  }, 20000);
+
+  it('should select the first tab when closing the selected tab', async () => {
+    const [first, second] = await openTabs(2);
+
+    await firefox.closeTab(1);
+
+    expect(firefox.getCurrentContextId()).toBe(first);
+    expect(firefox.getSelectedTabIdx()).toBe(0);
+    expect(await visibility(first)).toBe('visible');
+    await firefox.refreshTabs();
+    expect(firefox.getTabs().map((tab) => tab.actor)).not.toContain(second);
+  }, 20000);
+
+  it('should switch to the first tab when the selected tab was closed elsewhere', async () => {
+    const [first, second] = await openTabs(2);
+    await firefox.sendBiDiCommand('browsingContext.close', { context: second });
+
+    expect(await firefox.ensureConnected()).toBe(true);
+
+    expect(firefox.getCurrentContextId()).toBe(first);
+  }, 20000);
+
+  it('should report the fallback tab as selected after recovery', async () => {
+    const [first, , third] = await openTabs(3);
+    await firefox.sendBiDiCommand('browsingContext.close', { context: third });
+
+    expect(await firefox.ensureConnected()).toBe(true);
+
+    expect(firefox.getCurrentContextId()).toBe(first);
+    expect(firefox.getSelectedTabIdx()).toBe(0);
+  }, 20000);
+
+  it('should report the first tab as selected when the selected tab was closed elsewhere', async () => {
+    const [, second] = await openTabs(2);
+    await firefox.sendBiDiCommand('browsingContext.close', { context: second });
+
+    await firefox.refreshTabs();
+
+    expect(firefox.getSelectedTabIdx()).toBe(0);
+  }, 20000);
+
+  it('should keep the selected tab when it is still open', async () => {
+    const [, second] = await openTabs(2);
+
+    expect(await firefox.ensureConnected()).toBe(true);
+
+    expect(firefox.getCurrentContextId()).toBe(second);
+  }, 20000);
+});
+
+describe('Closing tabs with a privileged context selected', () => {
+  let firefox: FirefoxClient;
+
+  beforeAll(async () => {
+    firefox = await createTestFirefox({ env: { MOZ_REMOTE_ALLOW_SYSTEM_ACCESS: '1' } });
+  });
+
+  afterAll(async () => {
+    await closeFirefox(firefox);
+  });
+
+  it('should keep the privileged context selected when closing a tab', async () => {
+    await firefox.createNewPage(fixtureUrl('simple.html'));
+    await firefox.refreshTabs();
+    const { contexts } = await firefox.sendBiDiCommand('browsingContext.getTree', {
+      'moz:scope': 'chrome',
+      maxDepth: 0,
+    });
+    const chromeContext = contexts[0].context;
+    await firefox.selectPrivilegedContext(chromeContext);
+
+    await firefox.closeTab(firefox.getTabs().length - 1);
+
+    expect(firefox.getCurrentContextId()).toBe(chromeContext);
+    expect(firefox.getSelectedTabIdx()).toBeNull();
+  }, 20000);
+
+  it('should not select a content tab as a privileged context', async () => {
+    await firefox.refreshTabs();
+    await firefox.selectTab(0);
+    const tab = firefox.getCurrentContextId();
+    assert(tab, 'a tab is selected');
+
+    await expect(firefox.selectPrivilegedContext(tab)).rejects.toThrow(
+      'is not a privileged context'
+    );
+
+    expect(firefox.getSelectedTabIdx()).toBe(0);
+  }, 20000);
+
+  it('should not report a selected tab while a privileged context is selected', async () => {
+    const { contexts } = await firefox.sendBiDiCommand('browsingContext.getTree', {
+      'moz:scope': 'chrome',
+      maxDepth: 0,
+    });
+    await firefox.selectPrivilegedContext(contexts[0].context);
+
+    expect(firefox.getSelectedTabIdx()).toBeNull();
+    await firefox.refreshTabs();
+    expect(firefox.getSelectedTabIdx()).toBeNull();
+
+    await firefox.selectTab(0);
+    expect(firefox.getSelectedTabIdx()).toBe(0);
+  }, 20000);
+
+  it('should switch to the first tab when the privileged context was closed', async () => {
+    const chromeContexts = async (): Promise<string[]> => {
+      const { contexts } = await firefox.sendBiDiCommand('browsingContext.getTree', {
+        'moz:scope': 'chrome',
+        maxDepth: 0,
+      });
+      return contexts.map(({ context }) => context);
+    };
+    const before = await chromeContexts();
+    const { context: tab } = await firefox.sendBiDiCommand('browsingContext.create', {
+      type: CreateType.Window,
+    });
+    const window = (await chromeContexts()).find((context) => !before.includes(context));
+    assert(window, 'the new window has a chrome context');
+    await firefox.selectPrivilegedContext(window);
+    await firefox.sendBiDiCommand('browsingContext.close', { context: tab });
+
+    expect(await firefox.ensureConnected()).toBe(true);
+
+    expect(firefox.getSelectedTabIdx()).toBe(0);
+    expect(firefox.getCurrentContextId()).toBe(firefox.getTabs()[0]?.actor);
+  }, 20000);
+});
+
+describe('Connection checks', () => {
+  it('should report a closed Firefox as not connected', async () => {
+    const firefox = await createTestFirefox();
+    await firefox.close();
+
+    expect(await firefox.ensureConnected()).toBe(false);
+  }, 30000);
+
+  it('should report a crashed Firefox as not connected', async () => {
+    const firefox = await createTestFirefox();
+    try {
+      const pid = firefox.getCapabilities().get('moz:processID') as number;
+      process.kill(pid, 'SIGKILL');
+
+      expect(await firefox.ensureConnected()).toBe(false);
+    } finally {
+      await closeFirefox(firefox);
+    }
+  }, 60000);
+});
+
+describe('New tab readiness', () => {
+  let firefox: FirefoxClient;
+  let server: Server;
+  let origin: string;
+
+  beforeAll(async () => {
+    server = createServer((req, res) => {
+      if (req.url === '/slow.png') {
+        setTimeout(() => res.writeHead(200, { 'Content-Type': 'image/png' }).end(), 1000);
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'text/html' }).end('<img src="/slow.png">');
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
+    firefox = await createTestFirefox();
+  });
+
+  afterAll(async () => {
+    await closeFirefox(firefox);
+    await new Promise((resolve) => server?.close(resolve));
+  });
+
+  it('should wait for the requested readiness state', async () => {
+    await firefox.createNewPage(`${origin}/`, ReadinessState.Complete);
+
+    expect(await firefox.evaluate('document.readyState')).toBe('complete');
   }, 20000);
 });

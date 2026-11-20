@@ -3,9 +3,8 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { WebDriver } from 'selenium-webdriver';
 import type { BrowsingContext, Script } from 'webdriver-bidi-protocol';
-import { ReadinessState, type BiDiFacade } from './bidi.js';
+import { CreateType, ReadinessState, type BiDiFacade } from './bidi.js';
 import { log, logDebug } from '../utils/logger.js';
 import { BiDiTimeoutError } from '../utils/errors.js';
 
@@ -49,14 +48,33 @@ export function isReadinessState(value: unknown): value is BrowsingContext.Readi
 }
 
 export class PageManagement {
+  private currentContextId: string | null = null;
+  // Privileged (chrome) contexts are not listed in the content tree
+  private currentContextPrivileged = false;
   private resizedContexts = new Set<string>();
 
-  constructor(
-    private driver: WebDriver,
-    private getCurrentContextId: () => string | null,
-    private setCurrentContextId: (id: string) => void,
-    private sendBiDiCommand: BiDiFacade['sendCommand']
-  ) {}
+  constructor(private bidi: BiDiFacade) {}
+
+  /**
+   * Get the browsing context that page tools operate on
+   */
+  getCurrentContextId(): string | null {
+    return this.currentContextId;
+  }
+
+  /**
+   * Make a privileged (chrome) context the current context
+   */
+  async selectPrivilegedContext(contextId: string): Promise<void> {
+    await this.assertPrivilegedContext(contextId);
+    this.#select(contextId, true);
+    this.cachedSelectedIdx = null;
+  }
+
+  #select(contextId: string, privileged = false): void {
+    this.currentContextId = contextId;
+    this.currentContextPrivileged = privileged;
+  }
 
   /**
    * Navigate to URL using BiDi
@@ -79,7 +97,7 @@ export class PageManagement {
       waitOverride ?? (isCommonScheme(url) ? ReadinessState.Interactive : ReadinessState.None);
 
     // Navigate using direct BiDi
-    await this.sendBiDiCommand('browsingContext.navigate', {
+    await this.bidi.sendCommand('browsingContext.navigate', {
       context: contextId,
       url,
       wait,
@@ -143,7 +161,7 @@ export class PageManagement {
     viewport: BrowsingContext.SetViewportParameters['viewport']
   ): Promise<void> {
     try {
-      await this.sendBiDiCommand(
+      await this.bidi.sendCommand(
         'browsingContext.setViewport',
         { context: contextId, viewport },
         { timeout: VIEWPORT_TIMEOUT_MS }
@@ -170,7 +188,7 @@ export class PageManagement {
     }
 
     try {
-      await this.sendBiDiCommand('browsingContext.handleUserPrompt', {
+      await this.bidi.sendCommand('browsingContext.handleUserPrompt', {
         context: contextId,
         accept: true,
         userText: promptText,
@@ -192,7 +210,7 @@ export class PageManagement {
     }
 
     try {
-      await this.sendBiDiCommand('browsingContext.handleUserPrompt', {
+      await this.bidi.sendCommand('browsingContext.handleUserPrompt', {
         context: contextId,
         accept: false,
       });
@@ -204,7 +222,8 @@ export class PageManagement {
   }
 
   private cachedTabs: Array<{ actor: string; title: string; url: string }> = [];
-  private cachedSelectedIdx: number = 0;
+  // null when a privileged context is selected
+  private cachedSelectedIdx: number | null = 0;
 
   /**
    * Get all tabs (window handles)
@@ -216,7 +235,7 @@ export class PageManagement {
   /**
    * Get selected tab index
    */
-  getSelectedTabIdx(): number {
+  getSelectedTabIdx(): number | null {
     return this.cachedSelectedIdx;
   }
 
@@ -225,7 +244,7 @@ export class PageManagement {
    */
   async refreshTabs(): Promise<void> {
     try {
-      const { contexts } = await this.sendBiDiCommand('browsingContext.getTree', { maxDepth: 0 });
+      const { contexts } = await this.bidi.sendCommand('browsingContext.getTree', { maxDepth: 0 });
 
       this.cachedTabs = await Promise.all(
         contexts.map(async ({ context, url }) => ({
@@ -235,10 +254,12 @@ export class PageManagement {
         }))
       );
       const currentId = this.getCurrentContextId();
-      this.cachedSelectedIdx = Math.max(
-        0,
-        this.cachedTabs.findIndex((tab) => tab.actor === currentId)
-      );
+      this.cachedSelectedIdx = this.currentContextPrivileged
+        ? null
+        : Math.max(
+            0,
+            this.cachedTabs.findIndex((tab) => tab.actor === currentId)
+          );
     } catch (error) {
       log(`Error refreshing tabs: ${error instanceof Error ? error.message : String(error)}`);
       // Fallback to single tab
@@ -250,13 +271,13 @@ export class PageManagement {
           url: '',
         },
       ];
-      this.cachedSelectedIdx = 0;
+      this.cachedSelectedIdx = this.currentContextPrivileged ? null : 0;
     }
   }
 
   private async getTitle(context: string): Promise<string> {
     try {
-      const result = await this.sendBiDiCommand(
+      const result = await this.bidi.sendCommand(
         'script.evaluate',
         {
           expression: 'document.title',
@@ -281,10 +302,10 @@ export class PageManagement {
    * Select tab by index
    */
   async selectTab(index: number): Promise<void> {
-    const handle = this.cachedTabs[index]?.actor;
-    if (handle) {
-      await this.driver.switchTo().window(handle);
-      this.setCurrentContextId(handle);
+    const context = this.cachedTabs[index]?.actor;
+    if (context) {
+      await this.bidi.sendCommand('browsingContext.activate', { context });
+      this.#select(context);
       this.cachedSelectedIdx = index;
     }
   }
@@ -293,29 +314,135 @@ export class PageManagement {
    * Create new page (tab)
    */
   async createNewPage(url: string, waitOverride?: BrowsingContext.ReadinessState): Promise<number> {
-    await this.driver.switchTo().newWindow('tab');
-    this.setCurrentContextId(await this.driver.getWindowHandle());
+    const { context } = await this.bidi.sendCommand('browsingContext.create', {
+      type: CreateType.Tab,
+    });
+    this.#select(context);
     await this.navigate(url, waitOverride);
     await this.refreshTabs();
-    return this.cachedSelectedIdx;
+    return this.cachedSelectedIdx!;
   }
 
   /**
    * Close tab by index
    */
   async closeTab(index: number): Promise<void> {
-    const handle = this.cachedTabs[index]?.actor;
-    if (handle) {
-      await this.driver.switchTo().window(handle);
-      await this.driver.close();
-      this.cachedTabs = this.cachedTabs.filter((tab) => tab.actor !== handle);
+    const context = this.cachedTabs[index]?.actor;
+    if (context) {
+      await this.bidi.sendCommand('browsingContext.close', { context });
+      this.cachedTabs = this.cachedTabs.filter((tab) => tab.actor !== context);
+      if (this.currentContextPrivileged) {
+        return;
+      }
+      const currentId = this.getCurrentContextId();
+      const currentIdx = this.cachedTabs.findIndex((tab) => tab.actor === currentId);
+      if (currentIdx !== -1) {
+        this.cachedSelectedIdx = currentIdx;
+        return;
+      }
       const next = this.cachedTabs[0]?.actor;
       if (next) {
-        await this.driver.switchTo().window(next);
-        this.setCurrentContextId(next);
+        await this.bidi.sendCommand('browsingContext.activate', { context: next });
+        this.#select(next);
         this.cachedSelectedIdx = 0;
       }
     }
+  }
+
+  /**
+   * Select the tab the user sees: the visible tab of the active window, or
+   * the first tab when none is visible. Opens a tab when there is none.
+   */
+  async selectInitialContext(): Promise<void> {
+    const { contexts } = await this.bidi.sendCommand('browsingContext.getTree', { maxDepth: 0 });
+    let candidates = contexts;
+    try {
+      const { clientWindows } = await this.bidi.sendCommand('browser.getClientWindows');
+      const active = clientWindows.find((window) => window.active)?.clientWindow;
+      const inActiveWindow = contexts.filter(({ clientWindow }) => clientWindow === active);
+      if (inActiveWindow.length) {
+        candidates = inActiveWindow;
+      }
+    } catch (error) {
+      logDebug('Failed to get the active window', error);
+    }
+
+    const visibilities = await Promise.all(
+      candidates.map(({ context }) =>
+        this.#evaluateWithTimeout(
+          { context, sandbox: PAGES_SANDBOX },
+          "document.visibilityState === 'visible'"
+        )
+      )
+    );
+    const context =
+      candidates[visibilities.indexOf(true)]?.context ??
+      candidates[0]?.context ??
+      (await this.bidi.sendCommand('browsingContext.create', { type: CreateType.Tab })).context;
+    this.#select(context);
+    logDebug(`Browsing context ID: ${context}`);
+  }
+
+  /**
+   * Ensure the current browsing context still exists. If it is gone, select
+   * the first tab, or open a new one when no tab is left. Returns false when
+   * Firefox does not respond.
+   */
+  async ensureCurrentContext(): Promise<boolean> {
+    try {
+      const currentId = this.getCurrentContextId();
+      let contexts: BrowsingContext.InfoList | undefined;
+      let available: string[];
+      if (this.currentContextPrivileged) {
+        available = await this.#getPrivilegedContextIds();
+      } else {
+        ({ contexts } = await this.bidi.sendCommand('browsingContext.getTree', { maxDepth: 0 }));
+        available = contexts.map(({ context }) => context);
+      }
+      if (currentId && available.includes(currentId)) {
+        return true;
+      }
+
+      contexts ??= (await this.bidi.sendCommand('browsingContext.getTree', { maxDepth: 0 }))
+        .contexts;
+
+      logDebug('Previously selected tab is no longer available');
+      let next = contexts[0]?.context;
+      if (next) {
+        logDebug('Switching to the first tab');
+        await this.bidi.sendCommand('browsingContext.activate', { context: next });
+      } else {
+        logDebug('All tabs have been closed, switching to a new tab');
+        next = (await this.bidi.sendCommand('browsingContext.create', { type: CreateType.Tab }))
+          .context;
+      }
+      this.#select(next);
+      await this.refreshTabs();
+      return true;
+    } catch (error) {
+      logDebug('Connection check failed: Firefox is not responsive', error);
+      return false;
+    }
+  }
+
+  /**
+   * Throw unless the id is a privileged context. Only top-level entries of the
+   * chrome-scoped tree are privileged; their children are content tabs.
+   */
+  async assertPrivilegedContext(contextId: string): Promise<void> {
+    if (!(await this.#getPrivilegedContextIds()).includes(contextId)) {
+      throw new Error(
+        `${contextId} is not a privileged context. Use list_privileged_contexts to see valid ids.`
+      );
+    }
+  }
+
+  async #getPrivilegedContextIds(): Promise<string[]> {
+    const { contexts } = await this.bidi.sendCommand('browsingContext.getTree', {
+      maxDepth: 0,
+      'moz:scope': 'chrome',
+    });
+    return contexts.map(({ context }) => context);
   }
 
   async #traverseHistory(delta: number): Promise<void> {
@@ -339,7 +466,7 @@ export class PageManagement {
     );
 
     try {
-      await this.sendBiDiCommand('browsingContext.traverseHistory', {
+      await this.bidi.sendCommand('browsingContext.traverseHistory', {
         context: contextId,
         delta,
       });
@@ -405,7 +532,7 @@ export class PageManagement {
    */
   async #evaluateWithTimeout(target: Script.ContextTarget, expression: string): Promise<unknown> {
     try {
-      const result = await this.sendBiDiCommand(
+      const result = await this.bidi.sendCommand(
         'script.evaluate',
         { expression, awaitPromise: false, target },
         { timeout: HISTORY_EVALUATE_TIMEOUT_MS }

@@ -36,54 +36,33 @@ function packExtension(): void {
 }
 
 /**
- * Get the moz-extension:// hostname for an installed extension by switching
- * to a chrome-privileged context and querying WebExtensionPolicy.
+ * Get the moz-extension:// hostname for an installed extension by querying
+ * WebExtensionPolicy in a chrome-privileged context.
  * Requires MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1.
  */
 async function getExtensionHostname(firefox: FirefoxClient, extensionId: string): Promise<string> {
-  const treeResult = await firefox.sendBiDiCommand('browsingContext.getTree', {
+  const { contexts } = await firefox.sendBiDiCommand('browsingContext.getTree', {
     'moz:scope': 'chrome',
+    maxDepth: 0,
   });
-  const contexts = treeResult.contexts || [];
-  if (contexts.length === 0) {
+  const chromeContextId = contexts[0]?.context;
+  if (!chromeContextId) {
     throw new Error('No chrome contexts available');
   }
 
-  const driver = firefox.getDriver();
-  const originalContextId = firefox.getCurrentContextId();
-  const chromeContextId = contexts[0].context;
-
-  try {
-    await driver.switchTo().window(chromeContextId);
-    await driver.setContext('chrome');
-
-    const hostname = await driver.executeAsyncScript(`
-      const callback = arguments[arguments.length - 1];
-      const extensionId = ${JSON.stringify(extensionId)};
-      (async () => {
-        try {
-          const policy = WebExtensionPolicy.getByID(extensionId);
-          callback(policy ? policy.mozExtensionHostname : '');
-        } catch { callback(''); }
-      })();
-    `);
-
-    if (!hostname) {
-      throw new Error(
-        `Could not resolve hostname for extension ${extensionId}, got: ${JSON.stringify(hostname)}`
-      );
-    }
-    return hostname as string;
-  } finally {
-    try {
-      await driver.setContext('content');
-      if (originalContextId) {
-        await driver.switchTo().window(originalContextId);
-      }
-    } catch (e) {
-      console.warn('Failed to restore context after getExtensionHostname:', e);
-    }
+  const hostname = await firefox
+    .getBidi()
+    .callFunction(
+      chromeContextId,
+      '(id) => WebExtensionPolicy.getByID(id)?.mozExtensionHostname ?? ""',
+      [{ type: 'string', value: extensionId }]
+    );
+  if (!hostname || typeof hostname !== 'string') {
+    throw new Error(
+      `Could not resolve hostname for extension ${extensionId}, got: ${JSON.stringify(hostname)}`
+    );
   }
+  return hostname;
 }
 
 describe('BiDi Navigation Integration Tests', () => {
@@ -149,16 +128,15 @@ describe('BiDi Navigation Integration Tests', () => {
     await firefox.navigate(extensionUrl);
 
     // Poll for the page URL since wait:none returns before the page loads
-    const driver = firefox.getDriver();
     await waitFor(async () => {
-      const url = await driver.getCurrentUrl();
-      return url.includes('moz-extension://');
+      const url = await firefox.evaluate('location.href');
+      return String(url).includes('moz-extension://');
     }, 5000);
 
     // Wait for the page title to be updated.
-    await waitFor(async () => !!(await driver.getTitle()), 5000);
+    await waitFor(async () => !!(await firefox.evaluate('document.title')), 5000);
 
-    const title = await driver.getTitle();
+    const title = await firefox.evaluate('document.title');
     expect(title).toBe('MCP Test Extension');
   }, 15000);
 
@@ -166,31 +144,18 @@ describe('BiDi Navigation Integration Tests', () => {
     await firefox.createNewPage(extensionUrl);
 
     // Poll for the page URL since wait:none returns before the page loads
-    const driver = firefox.getDriver();
     await waitFor(async () => {
-      const url = await driver.getCurrentUrl();
-      return url.includes('moz-extension://');
+      const url = await firefox.evaluate('location.href');
+      return String(url).includes('moz-extension://');
     }, 5000);
 
     // Wait for the page title to be updated.
-    await waitFor(async () => !!(await driver.getTitle()), 5000);
+    await waitFor(async () => !!(await firefox.evaluate('document.title')), 5000);
 
-    const title = await driver.getTitle();
+    const title = await firefox.evaluate('document.title');
     expect(title).toBe('MCP Test Extension');
 
-    // Clean up the created tab
-    try {
-      const handles = await driver.getAllWindowHandles();
-      if (handles.length > 1) {
-        await driver.close();
-        const remaining = await driver.getAllWindowHandles();
-        if (remaining.length > 0) {
-          await driver.switchTo().window(remaining[0]);
-        }
-      }
-    } catch {
-      // Best-effort cleanup
-    }
+    await firefox.closeTab(firefox.getSelectedTabIdx()!);
   }, 15000);
 
   describe('listExtensions', () => {

@@ -37,10 +37,8 @@ describe('getFirefox() reconnect behavior', () => {
 
     // Verify close() clears the state
     (core as any).driver = { quit: vi.fn().mockResolvedValue(undefined) };
-    core.setCurrentContextId('old-context');
     await core.close();
-    expect(core.getCurrentContextId()).toBe(null);
-    expect(() => core.getDriver()).toThrow('Driver not connected');
+    expect(core.isConnected()).toBe(false);
   });
 
   it('should reuse the pinned target until a reconnect fails, then allow fresh lookup', async () => {
@@ -177,7 +175,6 @@ describe('FirefoxCore connect() BiDi endpoint check', () => {
       get: vi.fn((name: string) => capabilityValues[name]),
     }),
     getSession: vi.fn().mockResolvedValue({}),
-    getWindowHandle: vi.fn().mockResolvedValue('mock-context-id'),
     get: vi.fn().mockResolvedValue(undefined),
   });
 
@@ -254,9 +251,6 @@ describe('FirefoxCore connect() BiDi endpoint check', () => {
     const connectPromise = core.connect();
     await expect(connectPromise).rejects.toThrow(/webSocketUrl/);
     await expect(connectPromise).rejects.toThrow('--marionette --remote-debugging-port');
-
-    // The check fires before any further driver interaction
-    expect(driver.getWindowHandle).not.toHaveBeenCalled();
   });
 
   it('should connect normally when the session has a webSocketUrl', async () => {
@@ -278,7 +272,6 @@ describe('FirefoxCore connect() BiDi endpoint check', () => {
     );
     expect(mockCapabilitiesSet).toHaveBeenCalledWith('webSocketUrl', true);
     expect(core.getFirefoxVersion()).toBe('142.0');
-    expect(core.getCurrentContextId()).toBe('mock-context-id');
   });
 
   it('should reuse the first resolved companion port instead of looking up a newer instance', async () => {
@@ -433,7 +426,7 @@ describe('FirefoxCore connect() BiDi endpoint check', () => {
       expect(mockGeckodriverKill).toHaveBeenCalledWith('SIGKILL');
       expect(mockServiceKill).toHaveBeenCalled();
       expect(driver.getCapabilities).not.toHaveBeenCalled();
-      expect(() => core.getDriver()).toThrow('Driver not connected');
+      expect(core.isConnected()).toBe(false);
     } finally {
       vi.useRealTimers();
     }
@@ -525,7 +518,7 @@ describe('FirefoxCore connect() BiDi endpoint check', () => {
 
     await expect(core.connect()).rejects.toThrow('unknown error');
     expect(mockGeckodriverKill).toHaveBeenCalledWith('SIGKILL');
-    expect(() => core.getDriver()).toThrow('Driver not connected');
+    expect(core.isConnected()).toBe(false);
   });
 
   it('should not probe the Marionette port in launch mode', async () => {
@@ -546,6 +539,5 @@ describe('FirefoxCore connect() BiDi endpoint check', () => {
     await core.connect();
 
     expect(mockCreateSession).not.toHaveBeenCalled();
-    expect(core.getCurrentContextId()).toBe('mock-context-id');
   });
 });

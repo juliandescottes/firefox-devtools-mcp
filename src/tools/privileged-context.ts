@@ -26,7 +26,7 @@ export const listPrivilegedContextsTool = {
 export const selectPrivilegedContextTool = {
   name: 'select_privileged_context',
   description:
-    'Select a privileged browsing context by ID and set WebDriver Classic context to "chrome" . Requires MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1 env var.',
+    'Select a privileged browsing context by ID. Requires MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1 env var.',
   annotations: {
     readOnlyHint: false,
   },
@@ -93,47 +93,30 @@ function formatContextList(contexts: any[]): string {
 const SYSTEM_ACCESS_ERROR =
   'Privileged context access not enabled. Set MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1 environment variable and restart Firefox.';
 
-// Top-level entries of the chrome-scoped tree are the privileged contexts;
-// their children are content tabs and must not be accepted.
-async function assertPrivilegedContext(firefox: any, contextId: string): Promise<void> {
-  let result;
+async function withSystemAccess<T>(operation: () => Promise<T>): Promise<T> {
   try {
-    result = await firefox.sendBiDiCommand('browsingContext.getTree', {
-      'moz:scope': 'chrome',
-    });
+    return await operation();
   } catch (error) {
-    if (error instanceof Error && error.message.includes('UnsupportedOperationError')) {
+    if (error instanceof Error && error.message.includes('unsupported operation')) {
       throw new Error(SYSTEM_ACCESS_ERROR);
     }
     throw error;
-  }
-  const contexts: any[] = result.contexts || [];
-  if (!contexts.some((ctx) => ctx.context === contextId)) {
-    throw new Error(
-      `${contextId} is not a privileged context. Use list_privileged_contexts to see valid ids.`
-    );
   }
 }
 
 export const handleListPrivilegedContexts = defineToolHandler<typeof listPrivilegedContextsTool>(
   async (_args): Promise<McpToolResponse> => {
-    try {
-      const { getFirefox } = await import('../index.js');
-      const firefox = await getFirefox();
+    const { getFirefox } = await import('../index.js');
+    const firefox = await getFirefox();
 
-      const result = await firefox.sendBiDiCommand('browsingContext.getTree', {
+    const result = await withSystemAccess(() =>
+      firefox.sendBiDiCommand('browsingContext.getTree', {
         'moz:scope': 'chrome',
-      });
+        maxDepth: 0,
+      })
+    );
 
-      const contexts = result.contexts || [];
-
-      return successResponse(formatContextList(contexts));
-    } catch (error) {
-      if (error instanceof Error && error.message.includes('UnsupportedOperationError')) {
-        throw new Error(SYSTEM_ACCESS_ERROR);
-      }
-      throw error;
-    }
+    return successResponse(formatContextList(result.contexts || []));
   },
   false
 );
@@ -149,28 +132,9 @@ export const handleSelectPrivilegedContext = defineToolHandler<typeof selectPriv
     const { getFirefox } = await import('../index.js');
     const firefox = await getFirefox();
 
-    await assertPrivilegedContext(firefox, contextId);
+    await withSystemAccess(() => firefox.selectPrivilegedContext(contextId));
 
-    const driver = firefox.getDriver();
-    await driver.switchTo().window(contextId);
-
-    try {
-      await driver.setContext('chrome');
-    } catch {
-      return errorResponse(
-        new Error(
-          `Switched to context ${contextId} but failed to set Marionette privileged context. Your Firefox build may not support privileged context or MOZ_REMOTE_ALLOW_SYSTEM_ACCESS is not set.`
-        )
-      );
-    }
-
-    // Update tracked context so helper tools (set_firefox_prefs)
-    // restore to this context instead of the old content context.
-    firefox.setCurrentContextId(contextId);
-
-    return successResponse(
-      `Switched to privileged context: ${contextId} (Marionette context set to privileged)`
-    );
+    return successResponse(`Switched to privileged context: ${contextId}`);
   },
   false
 );
@@ -189,7 +153,7 @@ export const handleEvaluatePrivilegedScript = defineToolHandler<
   const { getFirefox } = await import('../index.js');
   const firefox = await getFirefox();
 
-  await assertPrivilegedContext(firefox, context);
+  await withSystemAccess(() => firefox.assertPrivilegedContext(context));
 
   const result = await firefox.sendBiDiCommand('script.callFunction', {
     functionDeclaration: fnString,
