@@ -19,12 +19,27 @@ mcpTest.describe('wait_for (MCP)', () => {
     expect(result.text).toMatch(/"Ready" appeared after \d+ ms/);
   });
 
-  mcpTest('asks for either text or a selector', async ({ mcp }) => {
-    const neither = await mcp.callTool('wait_for', {});
-    const both = await mcp.callTool('wait_for', { text: 'Ready', selector: 'p' });
+  mcpTest('asks for text or a selector when given neither', async ({ mcp }) => {
+    const result = await mcp.callTool('wait_for', {});
 
-    expect(neither.isError).toBe(true);
-    expect(both.isError).toBe(true);
-    expect(neither.text).toContain('either text or selector');
+    expect(result.isError).toBe(true);
+    expect(result.text).toContain('text or selector parameter is required');
+  });
+
+  mcpTest('refuses text and a selector together', async ({ mcp }) => {
+    const result = await mcp.callTool('wait_for', { text: 'Ready', selector: 'p' });
+
+    expect(result.isError).toBe(true);
+    expect(result.text).toContain('either text or selector, not both');
+  });
+
+  mcpTest('refuses an empty text or selector', async ({ mcp }) => {
+    const text = await mcp.callTool('wait_for', { text: '' });
+    const selector = await mcp.callTool('wait_for', { selector: '' });
+
+    expect(text.isError).toBe(true);
+    expect(text.text).toContain('text parameter must be a non-empty string');
+    expect(selector.isError).toBe(true);
+    expect(selector.text).toContain('selector parameter must be a non-empty string');
   });
 });

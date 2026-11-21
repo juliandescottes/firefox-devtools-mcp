@@ -267,8 +267,17 @@ const MAX_WAIT_TIMEOUT = 30000;
 export const handleWaitFor = defineToolHandler<typeof waitForTool>(
   async function handleWaitFor(args): Promise<McpToolResponse> {
     const { text, selector, gone = false, timeout = 5000 } = args ?? {};
-    if ((text === undefined) === (selector === undefined)) {
-      throw new Error('wait_for needs either text or selector, not both');
+    if (text === undefined && selector === undefined) {
+      throw new Error('text or selector parameter is required');
+    }
+    if (text !== undefined && selector !== undefined) {
+      throw new Error('Pass either text or selector, not both');
+    }
+    if (text === '') {
+      throw new Error('text parameter must be a non-empty string');
+    }
+    if (selector === '') {
+      throw new Error('selector parameter must be a non-empty string');
     }
 
     const { getFirefox } = await import('../index.js');

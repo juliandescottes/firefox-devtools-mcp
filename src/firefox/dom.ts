@@ -301,7 +301,8 @@ export class DomInteractions {
 
   /**
    * Wait until an element or text shows up, or with gone until it disappears. A page that
-   * navigates in the meantime is searched again once its new document is there.
+   * navigates in the meantime is searched again once its new document is there, so a failed
+   * try only counts when it is the last one.
    * @returns Milliseconds waited
    */
   async waitFor(
@@ -312,6 +313,7 @@ export class DomInteractions {
     const started = Date.now();
     for (;;) {
       let present: boolean | undefined;
+      let failure: Error | undefined;
       try {
         present = await this.bidi.callFunction<boolean>(
           context,
@@ -320,8 +322,9 @@ export class DomInteractions {
           'wait_for'
         );
       } catch (error) {
-        if (/not a valid selector/.test((error as Error).message)) {
-          throw error;
+        failure = error as Error;
+        if (/not a valid selector/.test(failure.message)) {
+          throw failure;
         }
       }
       const waited = Date.now() - started;
@@ -329,6 +332,9 @@ export class DomInteractions {
         return waited;
       }
       if (waited >= timeout) {
+        if (failure) {
+          throw failure;
+        }
         const target = selector ? `selector ${selector}` : `text "${text}"`;
         throw new Error(
           `${target} ${gone ? 'was still there' : 'did not appear'} after ${timeout} ms`
