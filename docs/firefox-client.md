@@ -1,12 +1,21 @@
 # Firefox Client Architecture
 
-The MCP server uses **Selenium WebDriver** with WebDriver BiDi to drive Firefox.
+The MCP server drives Firefox with **WebDriver BiDi**. Selenium WebDriver is only used for the WebDriver session (see [Selenium](#selenium)).
 
 ## Protocol
 
 **WebDriver BiDi** — WebSocket, JSON-RPC, [W3C spec](https://w3c.github.io/webdriver-bidi/).
 
-Used for tab management, JavaScript evaluation, console events, network monitoring, screenshots, and page content access. Selenium manages the WebSocket connection; no custom protocol code is needed.
+Used for tab management, JavaScript evaluation, console events, network monitoring, screenshots, and page content access. All BiDi commands and event subscriptions go through `BiDiFacade` (`src/firefox/bidi.ts`), which sends them on the WebSocket that Selenium opens.
+
+## Selenium
+
+Selenium is only used to create the WebDriver session, read its capabilities, open its BiDi WebSocket, and end the session. Do not use it to talk to Firefox in any other way:
+
+- no WebDriver classic commands, for example `switchTo()`, `getWindowHandle()` or `executeScript()`
+- no Selenium BiDi helpers, for example `bidi.send()` or `bidi.subscribe()`
+
+Send BiDi commands with `BiDiFacade.sendCommand()`, and subscribe to events with `BiDiFacade.subscribe()`. Constants such as `Key` from `selenium-webdriver` are fine, as they send nothing. Removing Selenium entirely is tracked in [Bug 2081635](https://bugzilla.mozilla.org/show_bug.cgi?id=2081635).
 
 ## Module Structure
 
@@ -14,7 +23,8 @@ Used for tab management, JavaScript evaluation, console events, network monitori
 
 | Module | Responsibilities |
 |--------|-----------------|
-| `core.ts` | WebDriver + BiDi connection lifecycle |
+| `core.ts` | WebDriver session lifecycle (launch, connect-existing, close) |
+| `bidi.ts` | `BiDiFacade`: BiDi commands, event subscriptions and events |
 | `dom.ts` | JS evaluation, element lookup, input actions (click/hover/fill/drag/upload) |
 | `pages.ts` | Tab/window management, navigation, history, viewport |
 | `events.ts` | Console buffer (BiDi live events), network buffer (BiDi live events) |
