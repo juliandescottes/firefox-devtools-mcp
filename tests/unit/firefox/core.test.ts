@@ -212,6 +212,7 @@ describe('FirefoxCore connect() profile handling', () => {
           setBinary = mockSetBinary;
           windowSize = mockWindowSize;
           setAcceptInsecureCerts = mockSetAcceptInsecureCerts;
+          setPreference = vi.fn();
         },
         ServiceBuilder: class {
           constructor(...args: unknown[]) {
@@ -337,6 +338,7 @@ describe('FirefoxCore connect() binary lookup failure', () => {
           setBinary = vi.fn();
           windowSize = vi.fn();
           setAcceptInsecureCerts = vi.fn();
+          setPreference = vi.fn();
         },
         ServiceBuilder: class {
           setStdio = vi.fn();

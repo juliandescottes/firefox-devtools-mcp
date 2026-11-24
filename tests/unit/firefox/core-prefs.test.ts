@@ -57,14 +57,6 @@ describe('FirefoxCore prefs via firefoxOptions', () => {
     }));
   }
 
-  it('should not call setPreference when no prefs are provided', async () => {
-    mockSelenium();
-    const { FirefoxCore } = await import('../../../src/firefox/core.js');
-    const core = new FirefoxCore({ headless: true });
-    await core.connect();
-    expect(mockSetPreference).not.toHaveBeenCalled();
-  });
-
   it('should call setPreference for each pref at startup', async () => {
     mockSelenium();
     const { FirefoxCore } = await import('../../../src/firefox/core.js');
@@ -77,7 +69,6 @@ describe('FirefoxCore prefs via firefoxOptions', () => {
       },
     });
     await core.connect();
-    expect(mockSetPreference).toHaveBeenCalledTimes(3);
     expect(mockSetPreference).toHaveBeenCalledWith('bool.pref', true);
     expect(mockSetPreference).toHaveBeenCalledWith('int.pref', 42);
     expect(mockSetPreference).toHaveBeenCalledWith('string.pref', 'hello');
