@@ -193,6 +193,7 @@ warning naming the modules it dropped.
 
 - remote.prefs.recommended=false. When Firefox runs in automation, it applies [RecommendedPreferences](https://searchfox.org/firefox-main/source/remote/shared/RecommendedPreferences.sys.mjs) that modify browser behavior for testing. Set remote.prefs.recommended to false to skip those and have a configuration closer to a regular Firefox instance.
 - remote.log.level=Trace. Enable verbose WebDriver protocol logs in Firefox. The MCP server will automatically pass the matching log level to geckodriver so both sides log at the same verbosity.
+- dom.confirm_repost.testing.always_accept=false. By default, the MCP server sets this preference to true, so Firefox resends POST data without asking when a page is reloaded or revisited. WebDriver BiDi cannot handle the "resend" prompt, so with false, the prompt blocks the tab until a user closes it. Note that the preference is not applied when using `--connect-existing`.
 - app.update.disabledForTesting=false. Allow Firefox to automatically download and apply updates. Note that updates may interrupt your session. Requires also setting remote.prefs.recommended=false.
 
 ### Firefox for Android

@@ -223,6 +223,12 @@ const BINARY_NOT_FOUND_HINT =
   'Unable to detect Firefox binary automatically, please provide the full path via ' +
   '--firefox-path';
 
+// WebDriver BiDi cannot handle the "resend POST data" prompt, which blocks the
+// tab (Bug 2095877). Accept it automatically, users can override with --pref.
+const DEFAULT_PREFS: Record<string, string | number | boolean> = {
+  'dom.confirm_repost.testing.always_accept': true,
+};
+
 export class FirefoxCore {
   private detectedBinaryPath: string | undefined;
   private driver: WebDriver | null = null;
@@ -276,13 +282,13 @@ export class FirefoxCore {
       const geckodriverPath = await findGeckodriver();
       logDebug(`Using geckodriver: ${geckodriverPath}`);
 
-      const mozOptions: Record<string, unknown> = { androidPackage };
+      const mozOptions: Record<string, unknown> = {
+        androidPackage,
+        prefs: { ...DEFAULT_PREFS, ...this.options.prefs },
+      };
       const deviceSerial = this.options.androidDevice;
       if (deviceSerial && deviceSerial !== 'auto') {
         mozOptions.androidDeviceSerial = deviceSerial;
-      }
-      if (this.options.prefs) {
-        mozOptions.prefs = this.options.prefs;
       }
 
       const caps = new Capabilities();
@@ -450,6 +456,9 @@ export class FirefoxCore {
       }
       if (this.options.acceptInsecureCerts) {
         firefoxOptions.setAcceptInsecureCerts(true);
+      }
+      for (const [name, value] of Object.entries(DEFAULT_PREFS)) {
+        firefoxOptions.setPreference(name, value);
       }
       if (this.options.prefs) {
         for (const [name, value] of Object.entries(this.options.prefs)) {
