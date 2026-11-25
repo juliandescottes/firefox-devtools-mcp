@@ -140,17 +140,25 @@ function describeDialog(dialog: BrowsingContext.UserPromptOpenedParameters) {
   return `${dialog.type} "${dialog.message}"${defaultValue}`;
 }
 
+const DIALOG_INSTRUCTIONS = 'Use accept_dialog or dismiss_dialog.';
+
 /** Reject tool call because a dialog was already open */
-export function dialogOpenResponse(dialog: BrowsingContext.UserPromptOpenedParameters) {
+export function dialogOpenResponse(
+  dialog: BrowsingContext.UserPromptOpenedParameters,
+  instructions = DIALOG_INSTRUCTIONS
+) {
   return errorResponse(
-    `A dialog is blocking this tool from running: ${describeDialog(dialog)}. Use accept_dialog or dismiss_dialog.`
+    `A dialog is blocking this tool from running: ${describeDialog(dialog)}. ${instructions}`
   );
 }
 
 /** Return early from tool call because a dialog was opened while it was running */
-function dialogOpenedResponse(dialog: BrowsingContext.UserPromptOpenedParameters) {
+export function dialogOpenedResponse(
+  dialog: BrowsingContext.UserPromptOpenedParameters,
+  instructions = DIALOG_INSTRUCTIONS
+) {
   return successResponse(
-    `Dialog opened while tool was running: ${describeDialog(dialog)}. Use accept_dialog or dismiss_dialog.`
+    `Dialog opened while tool was running: ${describeDialog(dialog)}. ${instructions}`
   );
 }
 

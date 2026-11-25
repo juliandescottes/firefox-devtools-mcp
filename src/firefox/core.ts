@@ -3,7 +3,6 @@
  */
 
 import { Builder, Browser, Capabilities, WebDriver } from 'selenium-webdriver';
-import { UserPromptHandler } from 'selenium-webdriver/lib/capabilities.js';
 import firefox from 'selenium-webdriver/firefox.js';
 import {
   mkdirSync,
@@ -229,6 +228,10 @@ const DEFAULT_PREFS: Record<string, string | number | boolean> = {
   'dom.confirm_repost.testing.always_accept': true,
 };
 
+// Use the object form: with the string form, Firefox still accepts
+// beforeunload prompts automatically.
+const UNHANDLED_PROMPT_BEHAVIOR = { default: 'ignore' };
+
 export class FirefoxCore {
   private detectedBinaryPath: string | undefined;
   private driver: WebDriver | null = null;
@@ -297,7 +300,7 @@ export class FirefoxCore {
       if (this.options.acceptInsecureCerts) {
         caps.set('acceptInsecureCerts', true);
       }
-      caps.setAlertBehavior(UserPromptHandler.IGNORE);
+      caps.set('unhandledPromptBehavior', UNHANDLED_PROMPT_BEHAVIOR);
 
       const serviceBuilder = new firefox.ServiceBuilder(geckodriverPath);
       this.driver = firefox.Driver.createSession(caps, serviceBuilder.build());
@@ -372,7 +375,7 @@ export class FirefoxCore {
       // session in a locked state that blocks reconnection.
       const caps = new Capabilities();
       caps.set('webSocketUrl', true);
-      caps.setAlertBehavior(UserPromptHandler.IGNORE);
+      caps.set('unhandledPromptBehavior', UNHANDLED_PROMPT_BEHAVIOR);
 
       // createSession() returns synchronously; the session is established async under the hood.
       // Passing geckodriverPath to ServiceBuilder prevents getBinaryPaths() from running,
@@ -418,7 +421,7 @@ export class FirefoxCore {
       // Standard path: launch a new Firefox via selenium-webdriver
       const firefoxOptions = new firefox.Options();
       firefoxOptions.enableBidi();
-      firefoxOptions.setAlertBehavior(UserPromptHandler.IGNORE);
+      firefoxOptions.set('unhandledPromptBehavior', UNHANDLED_PROMPT_BEHAVIOR);
 
       if (this.options.headless) {
         firefoxOptions.addArguments('-headless');

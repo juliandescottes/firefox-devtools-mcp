@@ -270,25 +270,33 @@ export class FirefoxClient {
     return await this.pages.setViewportSize(width, height);
   }
 
+  /**
+   * @param contextId - Context to watch for dialogs. Defaults to the current context.
+   */
   async raceAgainstDialogOpened<T>(
     fn: () => Promise<T>,
-    dialogOpenedResponse: (dialog: BrowsingContext.UserPromptOpenedParameters) => T
+    dialogOpenedResponse: (dialog: BrowsingContext.UserPromptOpenedParameters) => T,
+    contextId?: BrowsingContext.BrowsingContext
   ) {
     if (!this.dialogEvents) {
       throw new Error('Dialog events not available');
     }
     return await this.dialogEvents.raceAgainstDialogOpened(
       fn,
-      () => this.getCurrentContextId(),
+      () => contextId ?? this.getCurrentContextId(),
       dialogOpenedResponse
     );
   }
 
   getCurrentDialog() {
+    return this.getDialog(this.getContext());
+  }
+
+  getDialog(contextId: BrowsingContext.BrowsingContext) {
     if (!this.dialogEvents) {
       throw new Error('Dialog events not available');
     }
-    return this.dialogEvents.getDialog(this.getContext());
+    return this.dialogEvents.getDialog(contextId);
   }
 
   async getPagesWithDialogs(): Promise<

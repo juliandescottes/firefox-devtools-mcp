@@ -9,6 +9,8 @@ import { READINESS_STATES, isReadinessState } from '../firefox/pages.js';
 import {
   defineModule,
   defineToolHandler,
+  dialogOpenResponse,
+  dialogOpenedResponse,
   type JsonSchemaProperty,
   type ToolDefinition,
 } from './module.js';
@@ -311,10 +313,27 @@ export const handleClosePage = defineToolHandler<typeof closePageTool>(
       throw new Error(`Page with index ${pageIdx} not found`);
     }
 
-    await firefox.closeTab(pageIdx);
+    const instructions =
+      pageIdx === firefox.getSelectedTabIdx()
+        ? undefined
+        : `Use select_page with pageIdx ${pageIdx}, then accept_dialog or dismiss_dialog.`;
 
-    return successResponse(`closed [${pageIdx}]`);
-  }
+    const dialog = firefox.getDialog(pageToClose.actor);
+    if (dialog) {
+      return dialogOpenResponse(dialog, instructions);
+    }
+
+    return await firefox.raceAgainstDialogOpened(
+      async () => {
+        await firefox.closeTab(pageIdx);
+        return successResponse(`closed [${pageIdx}]`);
+      },
+      (dialog) => dialogOpenedResponse(dialog, instructions),
+      pageToClose.actor
+    );
+  },
+  // Dialogs are checked on the page to close, not on the selected page.
+  false
 );
 
 async function respondWithContent(

@@ -23,6 +23,9 @@ const HISTORY_POLL_INTERVAL_MS = 50;
 // Bug 1901211: setViewport never resolves when the page is zoomed
 const VIEWPORT_TIMEOUT_MS = 5000;
 
+const PAGE_CLOSED_TIMEOUT_MS = 2000;
+const PAGE_CLOSED_POLL_INTERVAL_MS = 50;
+
 /**
  * Check if a URL uses a common scheme that supports load events.
  * Non-common schemes = moz-extension:, about:, ...
@@ -198,6 +201,12 @@ export class PageManagement {
         `Failed to accept dialog: ${error instanceof Error ? error.message : String(error)}`
       );
     }
+
+    if (this.#closesBlockedByBeforeUnload.delete(contextId)) {
+      await this.#waitForPageClosed(contextId);
+      await this.ensureCurrentContext();
+      await this.refreshTabs();
+    }
   }
 
   /**
@@ -219,8 +228,12 @@ export class PageManagement {
         `Failed to dismiss dialog: ${error instanceof Error ? error.message : String(error)}`
       );
     }
+    // The page stays open, so the tabs do not change.
+    this.#closesBlockedByBeforeUnload.delete(contextId);
   }
 
+  // Pages whose close_page call is blocked by a beforeunload prompt
+  #closesBlockedByBeforeUnload = new Set<string>();
   private cachedTabs: Array<{ actor: string; title: string; url: string }> = [];
   // null when a privileged context is selected
   private cachedSelectedIdx: number | null = 0;
@@ -329,23 +342,41 @@ export class PageManagement {
   async closeTab(index: number): Promise<void> {
     const context = this.cachedTabs[index]?.actor;
     if (context) {
-      await this.bidi.sendCommand('browsingContext.close', { context });
-      this.cachedTabs = this.cachedTabs.filter((tab) => tab.actor !== context);
-      if (this.currentContextPrivileged) {
+      let promptOpened = false;
+      const onPromptOpened = (prompt: BrowsingContext.UserPromptOpenedParameters) => {
+        if (prompt.context === context) {
+          promptOpened = true;
+          this.#closesBlockedByBeforeUnload.add(context);
+        }
+      };
+      this.bidi.on('browsingContext.userPromptOpened', onPromptOpened);
+      try {
+        await this.bidi.sendCommand('browsingContext.close', { context, promptUnload: true });
+      } finally {
+        this.bidi.off('browsingContext.userPromptOpened', onPromptOpened);
+      }
+      // If a beforeunload prompt opened, close_page already returned, and this
+      // runs only after the prompt was handled. acceptDialog() has updated the
+      // tabs, and after dismissDialog() the page is still open.
+      if (!promptOpened) {
+        await this.ensureCurrentContext();
+        await this.refreshTabs();
+      }
+    }
+  }
+
+  /**
+   * Wait for Firefox to close the page after its beforeunload prompt was
+   * accepted. The page can still be in the tree right after the accept.
+   */
+  async #waitForPageClosed(context: string): Promise<void> {
+    const deadline = Date.now() + PAGE_CLOSED_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      const { contexts } = await this.bidi.sendCommand('browsingContext.getTree', { maxDepth: 0 });
+      if (!contexts.some((info) => info.context === context)) {
         return;
       }
-      const currentId = this.getCurrentContextId();
-      const currentIdx = this.cachedTabs.findIndex((tab) => tab.actor === currentId);
-      if (currentIdx !== -1) {
-        this.cachedSelectedIdx = currentIdx;
-        return;
-      }
-      const next = this.cachedTabs[0]?.actor;
-      if (next) {
-        await this.bidi.sendCommand('browsingContext.activate', { context: next });
-        this.#select(next);
-        this.cachedSelectedIdx = 0;
-      }
+      await new Promise((resolve) => setTimeout(resolve, PAGE_CLOSED_POLL_INTERVAL_MS));
     }
   }
 
