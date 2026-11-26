@@ -190,6 +190,9 @@ export class PageManagement {
       throw new Error(`Cannot accept dialog: no browsing context ID`);
     }
 
+    // Check before accepting, the entry is removed when the prompt closes.
+    const closeBlocked = this.#closesBlockedByBeforeUnload.has(contextId);
+
     try {
       await this.bidi.sendCommand('browsingContext.handleUserPrompt', {
         context: contextId,
@@ -202,7 +205,7 @@ export class PageManagement {
       );
     }
 
-    if (this.#closesBlockedByBeforeUnload.delete(contextId)) {
+    if (closeBlocked) {
       await this.#waitForPageClosed(contextId);
       await this.ensureCurrentContext();
       await this.refreshTabs();
@@ -228,8 +231,6 @@ export class PageManagement {
         `Failed to dismiss dialog: ${error instanceof Error ? error.message : String(error)}`
       );
     }
-    // The page stays open, so the tabs do not change.
-    this.#closesBlockedByBeforeUnload.delete(contextId);
   }
 
   // Pages whose close_page call is blocked by a beforeunload prompt
@@ -343,10 +344,22 @@ export class PageManagement {
     const context = this.cachedTabs[index]?.actor;
     if (context) {
       let promptOpened = false;
+      // The close is no longer blocked once its prompt closes, also when a
+      // user handled the prompt in Firefox.
+      const onPromptClosed = (closed: BrowsingContext.UserPromptClosedParameters) => {
+        if (closed.context === context && (closed.type as string) === 'beforeunload') {
+          this.bidi.off('browsingContext.userPromptClosed', onPromptClosed);
+          this.#closesBlockedByBeforeUnload.delete(context);
+        }
+      };
+      // Only a beforeunload prompt blocks the close. The page can open other
+      // prompts once the beforeunload prompt is dismissed, before the close returns.
       const onPromptOpened = (prompt: BrowsingContext.UserPromptOpenedParameters) => {
-        if (prompt.context === context) {
+        if (prompt.context === context && (prompt.type as string) === 'beforeunload') {
+          this.bidi.off('browsingContext.userPromptOpened', onPromptOpened);
           promptOpened = true;
           this.#closesBlockedByBeforeUnload.add(context);
+          this.bidi.on('browsingContext.userPromptClosed', onPromptClosed);
         }
       };
       this.bidi.on('browsingContext.userPromptOpened', onPromptOpened);
