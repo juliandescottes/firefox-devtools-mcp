@@ -340,6 +340,41 @@ describe('Dialog handlers', () => {
       await waitFor(async () => (await mcp.callTool('list_pages')).text.startsWith('1 page'));
     });
 
+    mcpTest('close_page dialog dismissed outside of the dialog tools', async ({ mcp }) => {
+      await mcp.callTool('new_page', { url: fixtureUrl('simple.html') });
+      await runScript(
+        mcp,
+        `() => window.addEventListener('beforeunload', (event) => event.preventDefault())`
+      );
+      const [uid] = await getUids(mcp, 'button "Click Me"');
+      await mcp.callTool('click_by_uid', { uid });
+      const tree = await mcp.callTool('send_bidi_command', {
+        method: 'browsingContext.getTree',
+        params: { maxDepth: 0 },
+      });
+      const context = [...tree.text.matchAll(/"context": "([^"]+)"/g)].pop()?.[1];
+      assert(context, 'browsingContext.getTree returns the context of the new page');
+
+      const result = await mcp.callTool('close_page', { pageIdx: 1 });
+      expect(result.text).toContain('Dialog opened while tool was running: beforeunload');
+
+      // Dismiss the prompt like a user would in Firefox.
+      await mcp.callTool('send_bidi_command', {
+        method: 'browsingContext.handleUserPrompt',
+        params: { context, accept: false },
+      });
+
+      // Accepting another dialog on the page must not wait for the page to close.
+      await expectDialogOpened(
+        mcp,
+        await mcp.callTool('evaluate_script', { function: `() => alert('foo')` })
+      );
+
+      await mcp.callTool('close_page', { pageIdx: 1 });
+      await mcp.callTool('accept_dialog');
+      await waitFor(async () => (await mcp.callTool('list_pages')).text.startsWith('1 page'));
+    });
+
     mcpTest('close_page on a page with an open dialog', async ({ mcp }) => {
       await mcp.callTool('new_page', { url: fixtureUrl('simple.html') });
       await mcp.callTool('evaluate_script', { function: `() => alert('foo')` });

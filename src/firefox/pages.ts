@@ -23,9 +23,6 @@ const HISTORY_POLL_INTERVAL_MS = 50;
 // Bug 1901211: setViewport never resolves when the page is zoomed
 const VIEWPORT_TIMEOUT_MS = 5000;
 
-const PAGE_CLOSED_TIMEOUT_MS = 2000;
-const PAGE_CLOSED_POLL_INTERVAL_MS = 50;
-
 /**
  * Check if a URL uses a common scheme that supports load events.
  * Non-common schemes = moz-extension:, about:, ...
@@ -190,8 +187,10 @@ export class PageManagement {
       throw new Error(`Cannot accept dialog: no browsing context ID`);
     }
 
-    // Check before accepting, the entry is removed when the prompt closes.
-    const closeBlocked = this.#closesBlockedByBeforeUnload.has(contextId);
+    // Listen before accepting, the page can be destroyed before the command returns.
+    const pageClosed = this.#closesBlockedByBeforeUnload.has(contextId)
+      ? await this.#waitForContextDestroyed(contextId)
+      : null;
 
     try {
       await this.bidi.sendCommand('browsingContext.handleUserPrompt', {
@@ -200,13 +199,15 @@ export class PageManagement {
         userText: promptText,
       });
     } catch (error) {
+      await pageClosed?.stop();
       throw new Error(
         `Failed to accept dialog: ${error instanceof Error ? error.message : String(error)}`
       );
     }
 
-    if (closeBlocked) {
-      await this.#waitForPageClosed(contextId);
+    if (pageClosed) {
+      await pageClosed.destroyed;
+      await pageClosed.stop();
       await this.ensureCurrentContext();
       await this.refreshTabs();
     }
@@ -379,18 +380,32 @@ export class PageManagement {
   }
 
   /**
-   * Wait for Firefox to close the page after its beforeunload prompt was
-   * accepted. The page can still be in the tree right after the accept.
+   * Start listening for the destruction of a context. Call it before the
+   * action that destroys the context. stop() removes the listener and the
+   * event subscription.
    */
-  async #waitForPageClosed(context: string): Promise<void> {
-    const deadline = Date.now() + PAGE_CLOSED_TIMEOUT_MS;
-    while (Date.now() < deadline) {
-      const { contexts } = await this.bidi.sendCommand('browsingContext.getTree', { maxDepth: 0 });
-      if (!contexts.some((info) => info.context === context)) {
-        return;
-      }
-      await new Promise((resolve) => setTimeout(resolve, PAGE_CLOSED_POLL_INTERVAL_MS));
-    }
+  async #waitForContextDestroyed(
+    context: string
+  ): Promise<{ destroyed: Promise<void>; stop: () => Promise<void> }> {
+    const subscription = await this.bidi.subscribe('browsingContext.contextDestroyed');
+
+    let onDestroyed!: (info: BrowsingContext.Info) => void;
+    const destroyed = new Promise<void>((resolve) => {
+      onDestroyed = (info) => {
+        if (info.context === context) {
+          resolve();
+        }
+      };
+    });
+    this.bidi.on('browsingContext.contextDestroyed', onDestroyed);
+
+    return {
+      destroyed,
+      stop: async () => {
+        this.bidi.off('browsingContext.contextDestroyed', onDestroyed);
+        await this.bidi.sendCommand('session.unsubscribe', { subscriptions: [subscription] });
+      },
+    };
   }
 
   /**
