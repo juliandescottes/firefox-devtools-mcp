@@ -1,6 +1,6 @@
 {
   "name": "@mozilla/firefox-mcp",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "description": "Model Context Protocol (MCP) server that lets AI agents browse the web and debug web pages with Firefox",
   "mcpName": "io.github.mozilla/firefox-mcp",
   "author": "Mozilla",
