@@ -28,8 +28,18 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Install Firefox
+        id: setup-firefox
+        uses: browser-actions/setup-firefox@latest
+        with:
+          firefox-version: latest
+
+      # Without an explicit binary, Selenium Manager can pick the Firefox
+      # preinstalled on the runner image instead of this one.
       - name: Test
         run: npm run test:run
+        env:
+          FIREFOX_PATH: ${{ steps.setup-firefox.outputs.firefox-path }}
 
       - name: Create archive
         run: tar -czf firefox-mcp-${{ github.ref_name }}.tar.gz dist package.json README.md LICENSE-APACHE LICENSE-MIT
