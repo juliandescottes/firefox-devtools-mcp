@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-11-27
+
+### Added
+- New `wait_for` tool in the `snapshot` module. It waits until a text or an element matching a CSS selector is visible, or with `gone` until it disappears. It also searches open shadow roots and same-origin iframes. The `timeout` defaults to 5000 ms, with a maximum of 30000 ms. Text of hidden elements is ignored
+- Firefox MCP now supports connecting to WebDriver sessions restricted to a single container (e.g. with --connect-existing). All events and commands will be restrained to the container created for this session.
+
+### Fixed
+- Reloading or going back to a page loaded with POST data no longer blocks the tab with the "resend" prompt. The MCP server now sets `dom.confirm_repost.testing.always_accept` to true by default. Use `--pref dom.confirm_repost.testing.always_accept=false` to keep the prompt. The preference is not applied with `--connect-existing`
+
+### Changed
+- Tab management and privileged context tools now use WebDriver BiDi instead of WebDriver Classic. Firefox MCP now exclusively uses commands and events from WebDriver BiDi.
+- The Claude plugin is renamed to `firefox-mcp`, with `/firefox-mcp:*` slash commands, and runs `@mozilla/firefox-mcp`. The troubleshoot plugin is renamed to `firefox-mcp-troubleshoot`. The old `firefox-devtools-mcp` plugin still runs the same server, but without skills, agents and commands. The plugin README explains how to switch
+
 ## [0.11.0] - 2026-11-19
 
 ### Added
