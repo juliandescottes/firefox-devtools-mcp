@@ -51,10 +51,10 @@ describe('Dialog handlers', () => {
     });
 
     mcpTest.beforeEach(async ({ mcp }) => {
-      await mcp.callTool('evaluate_script', {
-        function: `() => { window.result = 'pending'; setTimeout(() => { window.result = ${method}('foo'); }); }`,
+      const result = await mcp.callTool('evaluate_script', {
+        function: `() => { window.result = 'pending'; window.result = ${method}('foo'); }`,
       });
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(result.text).toContain('Dialog opened while tool was running');
       expect(await getResult(mcp)).toContain('"pending"');
     });
 
